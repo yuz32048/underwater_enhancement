@@ -43,6 +43,12 @@ python main.py --config config.yaml train
 python main.py --config config.yaml test
 ```
 
+下载 UIEB 和 EUVP 数据集：
+
+```bash
+python tools/download_datasets.py --datasets uieb euvp --output-root data/external
+```
+
 各模块也可以单独运行：
 
 ```bash
@@ -54,6 +60,41 @@ python eval/test.py --config config.yaml
 ```
 
 ## 功能说明
+
+### 0. 数据集下载
+
+执行：
+
+```bash
+python tools/download_datasets.py --datasets uieb euvp --output-root data/external
+```
+
+脚本会下载：
+
+- UIEB：官方 Google Drive 中的 raw 图像和 reference 图像；
+- EUVP：IRVLab 官方页面提供的 Google Drive 文件夹。
+
+默认输出：
+
+```text
+data/external/UIEB/
+data/external/UIEB/archives/
+data/external/UIEB/raw/
+data/external/UIEB/reference/
+data/external/EUVP/
+```
+
+只下载不解压：
+
+```bash
+python tools/download_datasets.py --datasets uieb --output-root data/external --no-extract
+```
+
+注意：
+
+- UIEB 官方页面声明数据集仅限学术/非商业用途，并禁止二次分发；
+- Google Drive 链接可能因权限、确认页或流量限制下载失败，此时需要先在浏览器打开官方页面确认访问权限；
+- EUVP 是 Google Drive 文件夹下载，建议安装最新版 `gdown`。
 
 ### 1. 图像统计特征分析
 
