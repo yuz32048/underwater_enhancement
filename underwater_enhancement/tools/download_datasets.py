@@ -58,7 +58,10 @@ def download_google_file(file_id: str, output_dir: Path, name: str, quiet: bool 
     output_dir.mkdir(parents=True, exist_ok=True)
     url = f"https://drive.google.com/uc?id={file_id}"
     output = output_dir / name
-    downloaded = gdown.download(url, str(output), quiet=quiet, fuzzy=True)
+    try:
+        downloaded = gdown.download(url, str(output), quiet=quiet, fuzzy=True)
+    except TypeError:
+        downloaded = gdown.download(url, str(output), quiet=quiet)
     if downloaded is None:
         raise RuntimeError(f"Download failed for {name}. The Google Drive link may require browser confirmation or may be stale.")
     return Path(downloaded)
@@ -68,7 +71,10 @@ def download_google_folder(folder_id: str, output_dir: Path, quiet: bool = False
     gdown = _require_gdown()
     output_dir.mkdir(parents=True, exist_ok=True)
     url = f"https://drive.google.com/drive/folders/{folder_id}"
-    files = gdown.download_folder(url=url, output=str(output_dir), quiet=quiet, use_cookies=False)
+    try:
+        files = gdown.download_folder(url=url, output=str(output_dir), quiet=quiet, use_cookies=False)
+    except TypeError:
+        files = gdown.download_folder(url=url, output=str(output_dir), quiet=quiet)
     if not files:
         raise RuntimeError("Google Drive folder download failed. Try opening the official dataset page in a browser.")
     return output_dir
