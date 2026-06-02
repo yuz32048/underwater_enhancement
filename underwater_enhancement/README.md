@@ -43,6 +43,14 @@ python main.py --config config.yaml train
 python main.py --config config.yaml test
 ```
 
+如果 `data/raw_underwater/` 中放的是 `.zip`、`.rar` 等压缩包，可以先执行：
+
+```bash
+python main.py --config config.yaml prepare-data
+```
+
+也可以直接执行 `analyze` 或 `degrade`，程序会在读取图像前自动解压。
+
 下载 UIEB 和 EUVP 数据集：
 
 ```bash
@@ -95,6 +103,47 @@ python tools/download_datasets.py --datasets uieb --output-root data/external --
 - UIEB 官方页面声明数据集仅限学术/非商业用途，并禁止二次分发；
 - Google Drive 链接可能因权限、确认页或流量限制下载失败，此时需要先在浏览器打开官方页面确认访问权限；
 - EUVP 是 Google Drive 文件夹下载，建议安装最新版 `gdown`。
+
+### 压缩包解压
+
+如果已经手动把数据集压缩包放入 `data/raw_underwater/`，例如：
+
+```text
+data/raw_underwater/UIEB.rar
+data/raw_underwater/EUVP.zip
+```
+
+执行：
+
+```bash
+python main.py --config config.yaml prepare-data
+```
+
+解压结果会保存到：
+
+```text
+data/raw_underwater/_extracted_archives/UIEB/
+data/raw_underwater/_extracted_archives/EUVP/
+```
+
+后续 `analyze`、`classify`、`degrade` 仍然按原逻辑递归读取 `data/raw_underwater/` 下的图像文件，不需要额外改路径。
+
+压缩包相关配置在 `config.yaml` 中：
+
+```yaml
+archive_extraction:
+  enabled: true
+  extract_dir_name: _extracted_archives
+  overwrite: false
+  passwords: ["", "1234567", "8901234", "5678901"]
+```
+
+说明：
+
+- `.zip` 文件使用 Python 标准库解压；
+- `.rar` 文件需要系统中安装 7-Zip、unrar，或安装 `rarfile` 并配置可用的 RAR 后端；
+- 已解压成功的压缩包会生成 `.extracted` 标记，默认不会重复解压；
+- 如果要强制重新解压，把 `overwrite` 改为 `true`，或删除对应的 `.extracted` 标记文件。
 
 ### 1. 图像统计特征分析
 

@@ -7,8 +7,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from ..analysis.visualization import save_brightness_histogram, save_edge_visualization, save_rgb_histogram
-from ..utils.image_io import list_images, load_config, read_image_rgb
+from analysis.visualization import save_brightness_histogram, save_edge_visualization, save_rgb_histogram
+from utils.archive_extraction import prepare_archives
+from utils.image_io import list_images, load_config, read_image_rgb
 
 
 def extract_features(image_rgb: np.ndarray, cfg: dict) -> Dict[str, float]:
@@ -65,6 +66,7 @@ def analyze_folder(cfg: dict, root: str | Path = ".") -> pd.DataFrame:
     root = Path(root)
     in_dir = root / cfg["paths"]["input_dir"]
     out_dir = root / cfg["paths"]["analysis_dir"]
+    prepare_archives(in_dir, cfg)
     hist_dir = out_dir / "rgb_histograms"
     bright_dir = out_dir / "brightness_histograms"
     edge_dir = out_dir / "edges"

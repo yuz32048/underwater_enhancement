@@ -6,6 +6,7 @@ from analysis.feature_extraction import analyze_folder
 from degradation.generate_degraded_dataset import generate_dataset
 from eval.test import run_test
 from train.train_cyclegan import train
+from utils.archive_extraction import prepare_archives
 from utils.image_io import load_config
 from utils.seed import set_seed
 
@@ -19,6 +20,7 @@ def main() -> None:
     sub.add_parser("degrade")
     sub.add_parser("train")
     sub.add_parser("test")
+    sub.add_parser("prepare-data")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -35,6 +37,8 @@ def main() -> None:
         train(cfg, root)
     elif args.command == "test":
         run_test(cfg, root)
+    elif args.command == "prepare-data":
+        prepare_archives(root / cfg["paths"]["input_dir"], cfg)
 
 
 if __name__ == "__main__":

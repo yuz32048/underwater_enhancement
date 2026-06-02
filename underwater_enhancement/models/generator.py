@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from ..models.branches import BlueCastBranch, BlurBranch, GreenCastBranch, LowLightBranch
+from models.branches import BlueCastBranch, BlurBranch, GreenCastBranch, LowLightBranch
 
 
 class AttentionFusion(nn.Module):

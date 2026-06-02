@@ -15,6 +15,12 @@ analysis:
   canny_threshold1: 80
   canny_threshold2: 180
 
+archive_extraction:
+  enabled: true
+  extract_dir_name: _extracted_archives
+  overwrite: false
+  passwords: ["", "1234567", "8901234", "5678901"]
+
 classification:
   blue_mean_threshold: 115
   blue_red_diff_threshold: 18
