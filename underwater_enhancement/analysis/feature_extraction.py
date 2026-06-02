@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from ..analysis.visualization import save_brightness_histogram, save_edge_visualization, save_rgb_histogram
-from ..utils.image_io import list_images, load_config, read_image_rgb
+from analysis.visualization import save_brightness_histogram, save_edge_visualization, save_rgb_histogram
+from utils.image_io import list_images, load_config, read_image_rgb
 
 
 def extract_features(image_rgb: np.ndarray, cfg: dict) -> Dict[str, float]:
