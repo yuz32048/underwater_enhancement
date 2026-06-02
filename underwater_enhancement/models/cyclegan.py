@@ -1,7 +1,7 @@
 from torch import nn
 
-from ..models.discriminator import PatchDiscriminator
-from ..models.generator import MultiBranchGenerator
+from models.discriminator import PatchDiscriminator
+from models.generator import MultiBranchGenerator
 
 
 class CycleGAN(nn.Module):

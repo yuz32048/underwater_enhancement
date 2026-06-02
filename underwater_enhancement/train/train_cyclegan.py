@@ -6,11 +6,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..models.cyclegan import CycleGAN
-from ..train.dataset import UnpairedImageDataset
-from ..train.losses import SSIMLoss, gan_loss
-from ..utils.image_io import load_config, save_comparison, tensor_to_image
-from ..utils.logger import CSVLogger, setup_logger
+from models.cyclegan import CycleGAN
+from train.dataset import UnpairedImageDataset
+from train.losses import SSIMLoss, gan_loss
+from utils.image_io import load_config, save_comparison, tensor_to_image
+from utils.logger import CSVLogger, setup_logger
 
 
 def _device(name: str) -> torch.device:

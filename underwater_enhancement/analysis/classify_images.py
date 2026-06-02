@@ -6,8 +6,8 @@ from typing import Dict, List, Tuple
 import pandas as pd
 from tqdm import tqdm
 
-from ..analysis.feature_extraction import analyze_folder
-from ..utils.image_io import load_config
+from analysis.feature_extraction import analyze_folder
+from utils.image_io import load_config
 
 CLASSES = ["color_distortion_blue", "color_distortion_green", "low_light", "blurry", "normal"]
 

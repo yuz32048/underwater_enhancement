@@ -5,8 +5,8 @@ from typing import Dict, List
 import pandas as pd
 from tqdm import tqdm
 
-from ..degradation.jaffe_mcglamery import apply_jaffe_mcglamery
-from ..utils.image_io import list_images, load_config, read_image_rgb, resize_rgb, save_comparison, save_image_rgb
+from degradation.jaffe_mcglamery import apply_jaffe_mcglamery
+from utils.image_io import list_images, load_config, read_image_rgb, resize_rgb, save_comparison, save_image_rgb
 
 
 def generate_dataset(cfg: dict, root: str | Path = ".") -> pd.DataFrame:

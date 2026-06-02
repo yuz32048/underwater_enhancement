@@ -6,9 +6,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from ..eval.metrics import psnr, ssim, uciqe, uiqm
-from ..models.cyclegan import CycleGAN
-from ..utils.image_io import image_to_tensor, list_images, load_config, pil_loader, read_image_rgb, save_comparison, save_image_rgb, tensor_to_image
+from eval.metrics import psnr, ssim, uciqe, uiqm
+from models.cyclegan import CycleGAN
+from utils.image_io import image_to_tensor, list_images, load_config, pil_loader, read_image_rgb, save_comparison, save_image_rgb, tensor_to_image
 
 
 def run_test(cfg: dict, root: str | Path = ".") -> pd.DataFrame:

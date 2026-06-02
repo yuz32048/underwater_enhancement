@@ -4,7 +4,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..utils.image_io import save_image_rgb
+from utils.image_io import save_image_rgb
 
 
 def save_rgb_histogram(image_rgb: np.ndarray, out_path: str | Path, bins: int = 256) -> None:

@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch.utils.data import Dataset
 
-from ..utils.image_io import image_to_tensor, list_images, pil_loader
+from utils.image_io import image_to_tensor, list_images, pil_loader
 
 
 class UnpairedImageDataset(Dataset):
