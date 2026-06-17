@@ -59,6 +59,7 @@ def load_config(path: str | Path) -> dict:
 def save_comparison(path: str | Path, images: Iterable[np.ndarray], labels: Iterable[str] | None = None) -> None:
     imgs = [np.clip(im, 0, 255).astype(np.uint8) for im in images]
     canvas = np.concatenate(imgs, axis=1)
+    canvas = np.ascontiguousarray(canvas)
     if labels:
         import cv2
 

@@ -15,15 +15,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Face mirror uses a different owner/name while keeping the script unchanged.
 HF_DATASETS = {
     "uieb": {
-        "repo_id": "Hikari0608/UIEB",
-        "url": "https://huggingface.co/datasets/Hikari0608/UIEB",
-        "target_dir": "UIEB",
+        "repo_id": "yuz32048/underwater_img",
+        "url": "https://huggingface.co/datasets/yuz32048/underwater_img/resolve/main/UIEB.zip",
+        "target_dir": "data/raw_underwater/UIEB",
         "expected_dirs": ["raw-890", "reference-890", "challenging-60"],
     },
     "euvp": {
-        "repo_id": "Ken1053/EUVP",
-        "url": "https://huggingface.co/datasets/Ken1053/EUVP",
-        "target_dir": "EUVP",
+        "repo_id": "yuz32048/underwater_img",
+        "url": "https://huggingface.co/datasets/yuz32048/underwater_img/resolve/main/EUVP.zip",
+        "target_dir": "data/raw_underwater/EUVP",
         "expected_dirs": ["EUVP_Paired", "Unpaired", "test_samples", "eval_data"],
     },
 }
