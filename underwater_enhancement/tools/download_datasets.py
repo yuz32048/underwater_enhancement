@@ -5,6 +5,8 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Optional
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 DATASETS: Dict[str, Dict] = {
     "uieb": {
@@ -148,7 +150,6 @@ def download_uieb(output_root: Path, extract: bool, quiet: bool) -> None:
         archive = download_google_file(item["google_id"], archives, item["name"], quiet=quiet)
         print(f"Downloaded: {archive}")
         if extract:
-            extracted = extract_archive(archive, target / item["name"], item.get("password"))
             extract_dir = target / Path(item["name"]).stem
             extracted = extract_archive(archive, extract_dir, item.get("password"))
             print(f"Extracted: {extracted} -> {extract_dir}")
@@ -169,7 +170,7 @@ def download_euvp(output_root: Path, quiet: bool) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download UIEB and EUVP underwater image datasets.")
     parser.add_argument("--datasets", nargs="+", default=["uieb", "euvp"], choices=["uieb", "euvp"], help="Datasets to download.")
-    parser.add_argument("--output-root", default="data/external", help="Directory where datasets will be saved.")
+    parser.add_argument("--output-root", default=str(PROJECT_ROOT / "data" / "external"), help="Directory where datasets will be saved.")
     parser.add_argument("--no-extract", action="store_true", help="Keep downloaded archives without extracting them.")
     parser.add_argument("--quiet", action="store_true", help="Reduce gdown output.")
     return parser.parse_args()

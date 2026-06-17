@@ -1,10 +1,15 @@
 import argparse
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pandas as pd
 from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from analysis.feature_extraction import analyze_folder
 from utils.image_io import load_config
@@ -68,7 +73,7 @@ def classify_folder(cfg: dict, root: str | Path = ".") -> pd.DataFrame:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="../config.yaml")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"))
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
     classify_folder(load_config(config_path), config_path.parent)

@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 from typing import Dict, List
 
@@ -6,6 +7,10 @@ import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from analysis.visualization import save_brightness_histogram, save_edge_visualization, save_rgb_histogram
 from utils.image_io import list_images, load_config, read_image_rgb
@@ -95,7 +100,7 @@ def analyze_folder(cfg: dict, root: str | Path = ".") -> pd.DataFrame:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="../config.yaml")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"))
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
     analyze_folder(load_config(config_path), config_path.parent)

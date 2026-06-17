@@ -1,10 +1,15 @@
 import argparse
+import sys
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
 import torch
 from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from eval.metrics import psnr, ssim, uciqe, uiqm
 from models.cyclegan import CycleGAN
@@ -59,7 +64,7 @@ def run_test(cfg: dict, root: str | Path = ".") -> pd.DataFrame:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="../config.yaml")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"))
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
     run_test(load_config(config_path), config_path.parent)

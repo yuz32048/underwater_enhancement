@@ -98,6 +98,9 @@ def _extract_rar(archive: Path, target: Path, passwords: Iterable[str], overwrit
     try:
         import rarfile
     except ImportError:
+        rarfile = None
+
+    if rarfile is None:
         _extract_with_external_tool(archive, target, passwords, overwrite=overwrite)
         return
 
@@ -132,15 +135,34 @@ def _extract_with_external_tool(archive: Path, target: Path, passwords: Iterable
         raise RuntimeError(
             f"Cannot extract {archive.name}. Install 7-Zip/unrar, or install Python package `rarfile` with a RAR backend."
         )
-    mode = "-aoa" if overwrite else "-aos"
+    tool_name = Path(tool).stem.lower()
     last_output = ""
-    for password in passwords:
-        cmd = [tool, "x", str(archive), f"-o{target}", mode, "-y"]
-        cmd.append(f"-p{password}" if password else "-p")
+
+    if tool_name == "tar":
+        cmd = [tool, "-xf", str(archive), "-C", str(target)]
+        if not overwrite:
+            cmd.insert(1, "-k")
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if result.returncode == 0:
             return
         last_output = result.stdout
+    else:
+        for password in passwords:
+            if tool_name == "unrar":
+                password_arg = f"-p{password}" if password else "-p-"
+                cmd = [tool, "x", "-y", "-o+" if overwrite else "-o-", password_arg, str(archive), f"{target}/"]
+            else:
+                mode = "-aoa" if overwrite else "-aos"
+                cmd = [tool, "x", str(archive), f"-o{target}", mode, "-y"]
+                cmd.append(f"-p{password}" if password else "-p")
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if result.returncode == 0:
+                return
+            last_output = result.stdout
+            if "Unexpected end of archive" in last_output and "Wrong password" not in last_output:
+                raise RuntimeError(
+                    f"Archive is incomplete or corrupted: {archive}. Re-download or replace the archive.\n{last_output}"
+                )
     raise RuntimeError(f"External extraction failed for {archive}. Output:\n{last_output}")
 
 
@@ -149,4 +171,13 @@ def _find_archive_tool() -> Optional[str]:
         path = shutil.which(name)
         if path:
             return path
-    return None
+
+    for path in [
+        Path("C:/Program Files/7-Zip/7z.exe"),
+        Path("C:/Program Files (x86)/7-Zip/7z.exe"),
+        Path("C:/Program Files/WinRAR/UnRAR.exe"),
+    ]:
+        if path.exists():
+            return str(path)
+
+    return shutil.which("tar")
