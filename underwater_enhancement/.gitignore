@@ -9,18 +9,7 @@ __pycache__/
 .venv/
 venv/
 
+
 data/
-*.rar
-*.zip
-*.7z
-*.tar
-*.t
 
-checkpoints/
-
-outputs/
-
-logs/
-
-*.pth
-*.pt
+outputs/branches/

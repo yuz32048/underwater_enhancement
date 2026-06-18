@@ -68,6 +68,17 @@ def run(args: argparse.Namespace) -> pd.DataFrame:
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    解析命令行参数，配置水下图像退化分类的各项阈值与路径。
+    
+    Args:
+        无（参数通过命令行传入）
+    
+    Returns:
+        argparse.Namespace: 包含所有解析后的命令行参数的对象，包括输入/输出目录、
+            CSV路径以及各类退化检测阈值（蓝色通道b阈值、绿色通道a/b阈值、
+            低光V阈值、模糊Laplacian阈值、模糊边缘阈值、Canny边缘检测参数等）
+    """
     parser = argparse.ArgumentParser(description="Classify UIEB raw-890 into degradation labels.")
     parser.add_argument("--input-dir", default="data/raw_underwater/UIEB/raw-890")
     parser.add_argument("--output-dir", default="data/processed/UIEB_classified")
