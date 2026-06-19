@@ -32,6 +32,17 @@ def _domain_a_dirs(args: argparse.Namespace) -> list[str]:
     return dirs
 
 
+def _physical_dirs(args: argparse.Namespace) -> list[str]:
+    if args.no_physical_degradation:
+        return []
+    return [
+        f"{args.physical_root}/blue_cast",
+        f"{args.physical_root}/green_cast",
+        f"{args.physical_root}/low_light",
+        f"{args.physical_root}/blur",
+    ]
+
+
 def _enabled_branches(args: argparse.Namespace) -> list[str]:
     branches = ["blue", "green", "lowlight", "blur"]
     disabled = set(args.disable_branch or [])
@@ -64,7 +75,18 @@ def train(args: argparse.Namespace) -> None:
         (result_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
         args.log_csv = str(result_dir / "cyclegan_train_log.csv")
 
-    dataset = CycleGANDataset(_domain_a_dirs(args), args.uieb_reference_dir, args.image_size)
+    dataset = CycleGANDataset(
+        _domain_a_dirs(args),
+        args.uieb_reference_dir,
+        args.image_size,
+        raw_dir=args.uieb_raw_dir,
+        physical_dirs=_physical_dirs(args),
+        physical_sample_ratio=args.physical_sample_ratio,
+    )
+    print(f"raw_count={dataset.raw_count}")
+    print(f"physical_total_count={dataset.physical_total_count}")
+    print(f"physical_used_count={dataset.physical_used_count}")
+    print(f"raw_to_physical_ratio={dataset.raw_to_physical_ratio:.4f}" if dataset.physical_used_count else "raw_to_physical_ratio=inf")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
     model = CycleGAN(
         fusion=("average" if args.no_attention else args.fusion),
@@ -142,6 +164,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--uieb-raw-dir", default="data/raw_underwater/UIEB/raw-890")
     parser.add_argument("--uieb-reference-dir", default="data/raw_underwater/UIEB/reference-890")
     parser.add_argument("--physical-root", default="data/processed/physical_degradation")
+    parser.add_argument("--physical-sample-ratio", type=float, default=1.0)
     parser.add_argument("--pretrained-branch-dir", default="checkpoints/pretrained_branches")
     parser.add_argument("--generator-dir", default="checkpoints/generator")
     parser.add_argument("--discriminator-dir", default="checkpoints/discriminator")

@@ -8,6 +8,7 @@ from eval.test import run_test
 from scripts.classify_uieb import run as run_uieb_classification
 from scripts.generate_physical_degradation import run as run_physical_degradation
 from test import run as run_full_test
+from test_branch import run as run_branch_test
 from train_branch import BRANCHES, train_one
 from train_cyclegan import train as train_multibranch_cyclegan
 from train.train_cyclegan import train
@@ -31,6 +32,7 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--physical-sample-ratio", type=float, default=1.0)
 
 
 def _classification_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
@@ -98,6 +100,7 @@ def _cyclegan_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
         uieb_raw_dir=str(root / args.uieb_root / "raw-890"),
         uieb_reference_dir=str(root / args.uieb_root / "reference-890"),
         physical_root=str(root / args.physical_root),
+        physical_sample_ratio=args.physical_sample_ratio,
         pretrained_branch_dir=str(root / "checkpoints/pretrained_branches"),
         generator_dir=str(root / "checkpoints/generator"),
         discriminator_dir=str(root / "checkpoints/discriminator"),
@@ -137,6 +140,23 @@ def _test_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
         metrics_csv=str(root / "results/evaluation_metrics.csv"),
         average_csv=str(root / "results/average_metrics.csv"),
         attention_csv=str(root / "results/attention_statistics.csv"),
+        image_size=args.image_size,
+        device=args.device,
+    )
+
+
+def _branch_test_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        branch=args.branch,
+        classified_root=str(root / args.classified_root),
+        physical_root=str(root / args.physical_root),
+        reference_dir=str(root / args.reference_dir),
+        mapping_csv=str(root / args.mapping_csv),
+        checkpoint_dir=str(root / args.checkpoint_dir),
+        output_dir=str(root / args.output_dir),
+        comparison_dir=str(root / args.comparison_dir),
+        metrics_csv=str(root / args.metrics_csv),
+        average_csv=str(root / args.average_csv),
         image_size=args.image_size,
         device=args.device,
     )
@@ -189,6 +209,20 @@ def main() -> None:
     test_parser = sub.add_parser("test-all", help="Test trained G_AB on UIEB and EUVP")
     _add_pipeline_args(test_parser)
 
+    branch_test_parser = sub.add_parser("test-branch", help="Test pretrained expert branches independently")
+    branch_test_parser.add_argument("--branch", choices=BRANCHES + ["all"], default="all")
+    branch_test_parser.add_argument("--classified-root", default="data/processed/UIEB_classified")
+    branch_test_parser.add_argument("--physical-root", default="data/processed/physical_degradation")
+    branch_test_parser.add_argument("--reference-dir", default="data/raw_underwater/UIEB/reference-890")
+    branch_test_parser.add_argument("--mapping-csv", default="results/physical_degradation_mapping.csv")
+    branch_test_parser.add_argument("--checkpoint-dir", default="checkpoints/pretrained_branches")
+    branch_test_parser.add_argument("--output-dir", default="outputs/branch_test_results")
+    branch_test_parser.add_argument("--comparison-dir", default="outputs/branch_visual_comparisons")
+    branch_test_parser.add_argument("--metrics-csv", default="results/branch_test_metrics.csv")
+    branch_test_parser.add_argument("--average-csv", default="results/branch_average_metrics.csv")
+    branch_test_parser.add_argument("--image-size", type=int, default=256)
+    branch_test_parser.add_argument("--device", default="auto")
+
     full_parser = sub.add_parser("full-pipeline", help="Run classify, physical generation, branch pretraining, CycleGAN training, and test")
     _add_pipeline_args(full_parser)
     full_parser.add_argument("--branch", choices=BRANCHES + ["all"], default="all")
@@ -225,6 +259,8 @@ def main() -> None:
         train_multibranch_cyclegan(_cyclegan_args(args, root))
     elif args.command == "test-all":
         run_full_test(_test_args(args, root))
+    elif args.command == "test-branch":
+        run_branch_test(_branch_test_args(args, root))
     elif args.command == "full-pipeline":
         run_full_pipeline(args, root)
 

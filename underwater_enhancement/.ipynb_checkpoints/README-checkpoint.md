@@ -175,6 +175,7 @@ logs/branch_train_log.csv
 outputs/train_samples/branches/
 ```
 
+
 ## CycleGAN 整体训练
 
 标准训练：
@@ -184,7 +185,8 @@ python train_cyclegan.py ^
   --epochs 100 ^
   --batch-size 2 ^
   --device auto ^
-  --pretrained-branch-dir checkpoints/pretrained_branches
+  --pretrained-branch-dir checkpoints/pretrained_branches ^
+  --physical-sample-ratio 1.0
 ```
 
 训练域严格为：
@@ -207,6 +209,15 @@ outputs/train_samples/cyclegan/
 ```bash
 python train_cyclegan.py --resume checkpoints/generator/latest.pth
 ```
+
+`--physical-sample-ratio` 用于控制 Domain A 中物理退化数据的每轮采样量：
+
+- `1.0`：每个 epoch 使用的 physical 样本数约等于 UIEB raw 样本数。
+- `0.5`：每个 epoch 使用的 physical 样本数约等于 raw 的一半。
+- `4.0`：使用全部 physical 样本。
+
+训练启动时会打印 `raw_count`、`physical_total_count`、`physical_used_count` 和 `raw_to_physical_ratio`。
+
 
 ## 测试
 
@@ -241,6 +252,46 @@ results/attention_statistics.csv
 ```
 
 有 reference 的样本计算 PSNR、SSIM、UIQM、UCIQE；无 reference 的样本自动跳过 PSNR、SSIM，只计算 UIQM、UCIQE。
+
+## 单分支测试
+
+用于分别评估 `Blue Branch`、`Green Branch`、`Low-Light Branch`、`Blur Branch` 的预训练效果。
+
+测试单个分支：
+
+```bash
+python test_branch.py --branch blue
+```
+
+测试全部分支：
+
+```bash
+python test_branch.py --branch all
+```
+
+通过统一入口测试：
+
+```bash
+python main.py test-branch --branch all
+```
+
+单分支测试会读取：
+
+```text
+data/processed/UIEB_classified/{blue_cast,green_cast,low_light,blur}
+data/processed/physical_degradation/{blue_cast,green_cast,low_light,blur}
+```
+
+输出：
+
+```text
+outputs/branch_test_results/
+outputs/branch_visual_comparisons/
+results/branch_test_metrics.csv
+results/branch_average_metrics.csv
+```
+
+真实退化图按文件名或 stem 匹配 `reference-890`；物理退化图通过 `results/physical_degradation_mapping.csv` 找到 reference。
 
 ## 消融实验
 

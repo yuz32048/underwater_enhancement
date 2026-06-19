@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import random
 from pathlib import Path
 from typing import Iterable
 
@@ -58,16 +59,57 @@ class PairedImageDataset(Dataset):
 
 
 class CycleGANDataset(Dataset):
-    def __init__(self, domain_a_dirs: Iterable[str | Path], domain_b_dir: str | Path, image_size: int = 256):
-        self.domain_a = []
-        for d in domain_a_dirs:
-            self.domain_a.extend(list_images(d))
+    def __init__(
+        self,
+        domain_a_dirs: Iterable[str | Path],
+        domain_b_dir: str | Path,
+        image_size: int = 256,
+        raw_dir: str | Path | None = None,
+        physical_dirs: Iterable[str | Path] | None = None,
+        physical_sample_ratio: float = 4.0,
+        seed: int = 42,
+    ):
+        self.image_size = image_size
+        self.raw_images = list_images(raw_dir) if raw_dir is not None else []
+        self.physical_by_dir = [list_images(d) for d in (physical_dirs or [])]
+        self.physical_total_count = sum(len(items) for items in self.physical_by_dir)
+        self.raw_count = len(self.raw_images)
+        self.physical_used_count = 0
+
+        if raw_dir is not None or physical_dirs is not None:
+            physical_used = self._sample_physical(physical_sample_ratio, seed)
+            self.physical_used_count = len(physical_used)
+            self.domain_a = self.raw_images + physical_used
+        else:
+            self.domain_a = []
+            for d in domain_a_dirs:
+                self.domain_a.extend(list_images(d))
+            self.raw_count = len(self.domain_a)
+
         self.domain_b = list_images(domain_b_dir)
         if not self.domain_a:
             raise FileNotFoundError("No images found for CycleGAN Domain A.")
         if not self.domain_b:
             raise FileNotFoundError("No images found for CycleGAN Domain B.")
-        self.image_size = image_size
+        self.raw_to_physical_ratio = self.raw_count / self.physical_used_count if self.physical_used_count else float("inf")
+
+    def _sample_physical(self, physical_sample_ratio: float, seed: int) -> list[Path]:
+        if not self.physical_by_dir or self.physical_total_count == 0 or self.raw_count == 0 or physical_sample_ratio <= 0:
+            return []
+        target = min(self.physical_total_count, int(round(self.raw_count * physical_sample_ratio)))
+        if physical_sample_ratio >= 4.0:
+            target = self.physical_total_count
+        rng = random.Random(seed)
+        buckets = [items[:] for items in self.physical_by_dir if items]
+        for bucket in buckets:
+            rng.shuffle(bucket)
+        selected: list[Path] = []
+        while len(selected) < target and any(buckets):
+            for bucket in buckets:
+                if bucket and len(selected) < target:
+                    selected.append(bucket.pop())
+        rng.shuffle(selected)
+        return selected
 
     def __len__(self) -> int:
         return max(len(self.domain_a), len(self.domain_b))
@@ -164,4 +206,3 @@ def save_average_metrics(metrics_csv: str | Path, average_csv: str | Path) -> No
     out = pd.concat([grouped, overall])
     Path(average_csv).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(average_csv)
-
