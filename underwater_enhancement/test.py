@@ -21,9 +21,13 @@ def _device(name: str) -> torch.device:
 def _load_model(args: argparse.Namespace, device: torch.device) -> CycleGAN:
     ckpt = torch.load(args.checkpoint, map_location=device)
     ckpt_args = ckpt.get("args", {})
+    all_branches = ["blue", "green", "lowlight", "blur"]
+    disabled = set(ckpt_args.get("disable_branch") or [])
+    enabled_branches = [b for b in all_branches if b not in disabled]
+
     model = CycleGAN(
         fusion=ckpt_args.get("fusion", "attention"),
-        enabled_branches=None,
+        enabled_branches=enabled_branches,
         freeze_branches=False,
         use_multibranch=not ckpt_args.get("plain_cyclegan", False),
     ).to(device)
@@ -94,8 +98,17 @@ def run(args: argparse.Namespace) -> None:
                 attn = getattr(model.G_AB, "last_attention", None)
                 if attn is not None:
                     vals = attn.mean(dim=(0, 2, 3)).detach().cpu().tolist()
-                    names = getattr(model.G_AB, "branch_names", [])
-                    attn_rows.append({"dataset": dataset.name, "image_name": path.name, **{f"attention_{names[i]}": vals[i] for i in range(min(len(names), len(vals)))}})
+                    names = list(getattr(model.G_AB, "branch_names", []))
+
+                    attn_data = {}
+                    for i in range(min(len(names), len(vals))):
+                        attn_data[f"attention_{names[i]}"] = vals[i]
+
+                    attn_rows.append({
+                        "dataset": dataset.name,
+                        "image_name": path.name,
+                        **attn_data,
+                    })
 
     Path(args.metrics_csv).parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(args.metrics_csv, index=False)

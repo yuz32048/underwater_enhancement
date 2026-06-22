@@ -9,12 +9,23 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from datasets import CycleGANDataset
 from models.cyclegan import CycleGAN
 from train.losses import SSIMLoss, gan_loss
-from utils.image_io import save_comparison, save_image_rgb, tensor_to_image
 from utils.logger import CSVLogger
 
+import numpy as np
+import pandas as pd
+
+from datasets import CycleGANDataset, TestImageDataset
+from metrics import calculate_metrics
+from utils.image_io import (
+    save_comparison,
+    save_image_rgb,
+    tensor_to_image,
+    image_to_tensor,
+    pil_loader,
+    read_image_rgb,
+)
 
 def _device(name: str) -> torch.device:
     return torch.device("cuda" if name == "auto" and torch.cuda.is_available() else ("cpu" if name == "auto" else name))
@@ -63,6 +74,72 @@ def _load_checkpoint(path: Path, model: CycleGAN, optim_g, optim_d, device: torc
         optim_d.load_state_dict(ckpt["optim_d"])
     return int(ckpt.get("epoch", 0)) + 1, int(ckpt.get("step", 0))
 
+def _evaluate_validation(
+    model: CycleGAN,
+    args: argparse.Namespace,
+    device: torch.device,
+) -> dict:
+    model.eval()
+
+    val_input_dir = Path(args.val_input_dir) if args.val_input_dir else Path(args.uieb_raw_dir)
+    val_reference_dir = Path(args.val_reference_dir) if args.val_reference_dir else Path(args.uieb_reference_dir)
+
+    dataset = TestImageDataset(
+        "UIEB_validation",
+        val_input_dir,
+        val_reference_dir,
+    )
+
+    rows = []
+    images = dataset.images
+    if args.val_max_images > 0:
+        images = images[: args.val_max_images]
+
+    with torch.no_grad():
+        for img_path in tqdm(images, desc="Validation", leave=False):
+            pil = pil_loader(img_path, args.image_size)
+            tensor = image_to_tensor(np.array(pil)).unsqueeze(0).to(device)
+
+            enhanced = model.G_AB(tensor)
+            enhanced_img = tensor_to_image(enhanced)
+
+            ref_path = dataset.reference_for(img_path)
+            if ref_path is None:
+                continue
+
+            target = read_image_rgb(ref_path)
+            metric_row = calculate_metrics(enhanced_img, target)
+            rows.append(metric_row)
+
+    model.train()
+
+    if not rows:
+        return {
+            "PSNR": 0.0,
+            "SSIM": 0.0,
+            "UIQM": 0.0,
+            "UCIQE": 0.0,
+            "score": 0.0,
+            "num_images": 0,
+        }
+
+    df = pd.DataFrame(rows)
+
+    psnr = float(df["PSNR"].mean(skipna=True))
+    ssim = float(df["SSIM"].mean(skipna=True))
+    uiqm = float(df["UIQM"].mean(skipna=True))
+    uciqe = float(df["UCIQE"].mean(skipna=True))
+
+    score = psnr + args.val_ssim_weight * ssim
+
+    return {
+        "PSNR": psnr,
+        "SSIM": ssim,
+        "UIQM": uiqm,
+        "UCIQE": uciqe,
+        "score": score,
+        "num_images": len(df),
+    }
 
 def train(args: argparse.Namespace) -> None:
     device = _device(args.device)
@@ -107,7 +184,8 @@ def train(args: argparse.Namespace) -> None:
     if args.resume:
         start_epoch, step = _load_checkpoint(Path(args.resume), model, optim_g, optim_d, device)
 
-    best_loss = float("inf")
+    best_score = -float("inf")
+    val_records = []
     for epoch in range(start_epoch, args.epochs + 1):
         pbar = tqdm(loader, desc=f"CycleGAN epoch {epoch}/{args.epochs}")
         for real_a, real_b in pbar:
@@ -154,9 +232,38 @@ def train(args: argparse.Namespace) -> None:
         _save_checkpoint(Path(args.generator_dir) / f"epoch_{epoch}.pth", model, optim_g, optim_d, epoch, step, args)
         _save_checkpoint(Path(args.generator_dir) / "latest.pth", model, optim_g, optim_d, epoch, step, args)
         torch.save({"D_A": model.D_A.state_dict(), "D_B": model.D_B.state_dict()}, Path(args.discriminator_dir) / f"epoch_{epoch}.pth")
-        if loss_g.item() < best_loss:
-            best_loss = loss_g.item()
-            _save_checkpoint(Path(args.best_dir) / "generator_best.pth", model, optim_g, optim_d, epoch, step, args)
+        if epoch % args.val_interval == 0:
+            val_metrics = _evaluate_validation(model, args, device)
+            val_records.append({
+                "epoch": epoch,
+                "step": step,
+                **val_metrics,
+            })
+
+            Path(args.val_log_csv).parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(val_records).to_csv(args.val_log_csv, index=False)
+
+            print(
+                f"[Validation] epoch={epoch} "
+                f"PSNR={val_metrics['PSNR']:.4f} "
+                f"SSIM={val_metrics['SSIM']:.4f} "
+                f"UIQM={val_metrics['UIQM']:.4f} "
+                f"UCIQE={val_metrics['UCIQE']:.4f} "
+                f"score={val_metrics['score']:.4f}"
+            )
+
+            if val_metrics["score"] > best_score:
+                best_score = val_metrics["score"]
+                _save_checkpoint(
+                    Path(args.best_dir) / "generator_best.pth",
+                    model,
+                    optim_g,
+                    optim_d,
+                    epoch,
+                    step,
+                    args,
+                )
+                print(f"[Best] Saved best model at epoch {epoch}, score={best_score:.4f}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -191,6 +298,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-attention", action="store_true")
     parser.add_argument("--disable-branch", action="append", choices=["blue", "green", "lowlight", "blur"])
     parser.add_argument("--ablation-name", default="")
+    parser.add_argument("--val-input-dir", default="")
+    parser.add_argument("--val-reference-dir", default="")
+    parser.add_argument("--val-interval", type=int, default=5)
+    parser.add_argument("--val-max-images", type=int, default=0)
+    parser.add_argument("--val-ssim-weight", type=float, default=10.0)
+    parser.add_argument("--val-log-csv", default="logs/validation_metrics.csv")
     return parser.parse_args()
 
 

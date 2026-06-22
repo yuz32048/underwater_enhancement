@@ -13,3 +13,11 @@ venv/
 data/
 
 outputs/
+
+checkpoints/discriminator/
+
+checkpoints/generator/
+
+logs/
+
+

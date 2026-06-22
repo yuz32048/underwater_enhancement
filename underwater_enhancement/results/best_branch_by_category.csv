@@ -1,0 +1,5 @@
+test_category,best_branch_by_PSNR,best_PSNR,best_branch_by_SSIM,best_SSIM
+blue_cast,blur,22.57711175623725,blur,0.8888453313156759
+blur,blur,22.374042660925703,blur,0.8860085736907684
+green_cast,blur,22.572361150398706,green,0.8990334380578866
+low_light,green,20.062873306770797,green,0.8487805806994404

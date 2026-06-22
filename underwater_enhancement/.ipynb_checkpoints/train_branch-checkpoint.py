@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from datasets import BranchPretrainDataset
 from models.branches import branch_from_name
-from train.losses import SSIMLoss
+from train.losses import SSIMLoss, PerceptualLoss
 from utils.image_io import save_comparison, tensor_to_image
 from utils.logger import CSVLogger
 
@@ -43,7 +43,10 @@ def train_one(branch: str, args: argparse.Namespace) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.5, 0.999))
     l1 = nn.L1Loss()
     ssim = SSIMLoss().to(device)
-    log = CSVLogger(args.log_csv, ["branch", "epoch", "step", "loss", "l1", "ssim"])
+    log = CSVLogger(
+        args.log_csv,
+        ["branch", "epoch", "step", "loss", "l1", "ssim", "perceptual"]
+    )
     save_dir = Path(args.save_dir)
     sample_dir = Path(args.sample_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -56,15 +59,31 @@ def train_one(branch: str, args: argparse.Namespace) -> None:
             inp = inp.to(device)
             target = target.to(device)
             out = model(inp)
+            perceptual = PerceptualLoss().to(device)
+
             loss_l1 = l1(out, target)
             loss_ssim = ssim(out, target)
-            loss = args.lambda_l1 * loss_l1 + args.lambda_ssim * loss_ssim
+            loss_perceptual = perceptual(out, target)
+
+            loss = (
+                args.lambda_l1 * loss_l1
+                + args.lambda_ssim * loss_ssim
+                + args.lambda_perceptual * loss_perceptual
+            )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             step += 1
             pbar.set_postfix(loss=f"{loss.item():.4f}")
-            log.log({"branch": branch, "epoch": epoch, "step": step, "loss": loss.item(), "l1": loss_l1.item(), "ssim": loss_ssim.item()})
+            log.log({
+                "branch": branch,
+                "epoch": epoch,
+                "step": step,
+                "loss": loss.item(),
+                "l1": loss_l1.item(),
+                "ssim": loss_ssim.item(),
+                "perceptual": loss_perceptual.item(),
+            })
             if step % args.sample_every == 0:
                 save_comparison(sample_dir / f"{branch}_step_{step}.png", [tensor_to_image(inp), tensor_to_image(out), tensor_to_image(target)], ["input", "output", "reference"])
 
@@ -90,6 +109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lambda-l1", type=float, default=1.0)
     parser.add_argument("--lambda-ssim", type=float, default=0.5)
     parser.add_argument("--sample-every", type=int, default=200)
+    parser.add_argument("--lambda-perceptual", type=float, default=0.1)
     return parser.parse_args()
 
 

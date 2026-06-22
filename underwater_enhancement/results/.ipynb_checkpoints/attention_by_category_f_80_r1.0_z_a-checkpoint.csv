@@ -1,0 +1,5 @@
+category,num_images,attention_blue,attention_green,attention_lowlight,attention_blur,dominant_attention
+blue_cast,479,0.25,0.25,0.25,0.25,blue
+green_cast,257,0.25,0.25,0.25,0.25,blue
+low_light,29,0.25,0.25,0.25,0.25,blue
+blur,289,0.25,0.25,0.25,0.25,blue
