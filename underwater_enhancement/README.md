@@ -50,20 +50,12 @@ data/raw_underwater/
 
 UIEB 的 `raw-890` 与 `reference-890` 会按同名文件优先配对；如果同名失败，则按排序顺序兜底配对。EUVP 不参与训练，只用于测试。
 
-### 从 Hugging Face 下载数据集
-
-项目提供 Hugging Face Hub 下载脚本：
-
-```text
-tools/download_datasets.py
-```
-
-脚本内已集中配置 Hugging Face 数据集链接。用户直接运行即可把数据下载到项目使用的 `data/raw_underwater/` 目录。
+### 下载数据集
 
 下载 UIEB 和 EUVP：
 
 ```bash
-python tools/download_datasets.py
+python scripts/download_datasets.py
 ```
 
 默认输出：
@@ -72,38 +64,6 @@ python tools/download_datasets.py
 data/raw_underwater/UIEB
 data/raw_underwater/EUVP
 ```
-
-只下载 UIEB：
-
-```bash
-python tools/download_datasets.py --datasets uieb
-```
-
-只下载 EUVP：
-
-```bash
-python tools/download_datasets.py --datasets euvp
-```
-
-如果数据集是私有仓库或 gated dataset，先登录：
-
-```bash
-huggingface-cli login
-```
-
-或显式传入 token：
-
-```bash
-python tools/download_datasets.py --token hf_xxx
-```
-
-覆盖已有文件：
-
-```bash
-python tools/download_datasets.py --overwrite
-```
-
-脚本会先把 Hugging Face 快照下载到 `data/_hf_downloads/`，再将数据放入 `data/raw_underwater/`。如果快照中包含 `.zip`、`.tar`、`.tar.gz` 或 `.tgz`，会自动解压到对应数据集目录。Hugging Face 数据集应保持项目直接使用的目录结构，或提供可直接解压出的同等结构。
 
 
 ## 退化分类
