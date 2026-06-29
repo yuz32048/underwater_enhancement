@@ -1,22 +1,14 @@
 import argparse
 from pathlib import Path
 
-from analysis.classify_images import classify_folder
-from analysis.feature_extraction import analyze_folder
-from degradation.generate_degraded_dataset import generate_dataset
-from eval.test import run_test
 from scripts.classify_uieb import run as run_uieb_classification
 from scripts.generate_physical_degradation import run as run_physical_degradation
 from test import run as run_full_test
 from test_branch import run as run_branch_test
-from train_branch import BRANCHES, train_one
-from train_cyclegan import train as train_multibranch_cyclegan
-from train.train_cyclegan import train
-from utils.archive_extraction import prepare_archives
-from utils.image_io import load_config
 from utils.seed import set_seed
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+BRANCHES = ["blue", "green", "lowlight", "blur"]
 
 
 def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
@@ -91,6 +83,7 @@ def _branch_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
         num_workers=args.num_workers,
         lambda_l1=1.0,
         lambda_ssim=0.5,
+        lambda_perceptual=0.1,
         sample_every=200,
     )
 
@@ -127,6 +120,12 @@ def _cyclegan_args(args: argparse.Namespace, root: Path) -> argparse.Namespace:
         no_attention=False,
         disable_branch=None,
         ablation_name="",
+        val_input_dir="",
+        val_reference_dir="",
+        val_interval=5,
+        val_max_images=0,
+        val_ssim_weight=10.0,
+        val_log_csv=str(root / "logs/validation_metrics.csv"),
     )
 
 
@@ -163,6 +162,8 @@ def _branch_test_args(args: argparse.Namespace, root: Path) -> argparse.Namespac
 
 
 def run_branch_pretraining(args: argparse.Namespace, root: Path) -> None:
+    from train_branch import train_one
+
     branch_args = _branch_args(args, root)
     branches = BRANCHES if args.branch == "all" else [args.branch]
     for branch in branches:
@@ -177,6 +178,8 @@ def run_full_pipeline(args: argparse.Namespace, root: Path) -> None:
     if not args.skip_branch:
         run_branch_pretraining(args, root)
     if not args.skip_cyclegan:
+        from train_cyclegan import train as train_multibranch_cyclegan
+
         train_multibranch_cyclegan(_cyclegan_args(args, root))
     if not args.skip_test:
         run_full_test(_test_args(args, root))
@@ -184,14 +187,8 @@ def run_full_pipeline(args: argparse.Namespace, root: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Underwater image enhancement project")
-    parser.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"))
+    parser.add_argument("--seed", type=int, default=42)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("analyze")
-    sub.add_parser("classify")
-    sub.add_parser("degrade")
-    sub.add_parser("train")
-    sub.add_parser("test")
-    sub.add_parser("prepare-data")
 
     classify_uieb_parser = sub.add_parser("classify-uieb", help="Pipeline UIEB raw-890 degradation classification")
     _add_pipeline_args(classify_uieb_parser)
@@ -233,29 +230,18 @@ def main() -> None:
     full_parser.add_argument("--skip-test", action="store_true")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    set_seed(int(cfg.get("seed", 42)))
-    root = Path(args.config).resolve().parent
+    set_seed(args.seed)
+    root = PROJECT_ROOT
 
-    if args.command == "analyze":
-        analyze_folder(cfg, root)
-    elif args.command == "classify":
-        classify_folder(cfg, root)
-    elif args.command == "degrade":
-        generate_dataset(cfg, root)
-    elif args.command == "train":
-        train(cfg, root)
-    elif args.command == "test":
-        run_test(cfg, root)
-    elif args.command == "prepare-data":
-        prepare_archives(root / cfg["paths"]["input_dir"], cfg)
-    elif args.command == "classify-uieb":
+    if args.command == "classify-uieb":
         run_uieb_classification(_classification_args(args, root))
     elif args.command == "physical-degrade":
         run_physical_degradation(_physical_args(args, root))
     elif args.command == "pretrain-branches":
         run_branch_pretraining(args, root)
     elif args.command == "train-cyclegan":
+        from train_cyclegan import train as train_multibranch_cyclegan
+
         train_multibranch_cyclegan(_cyclegan_args(args, root))
     elif args.command == "test-all":
         run_full_test(_test_args(args, root))

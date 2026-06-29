@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from torchvision import models
 
 
 class SSIMLoss(nn.Module):
@@ -26,6 +25,8 @@ class SSIMLoss(nn.Module):
 class PerceptualLoss(nn.Module):
     def __init__(self):
         super().__init__()
+
+        from torchvision import models
 
         vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_FEATURES)
         self.features = vgg.features[:16].eval()
