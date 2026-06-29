@@ -332,3 +332,21 @@ Test:
 ```bash
 python experiments/three_stage_uieb/test_three_stage.py --checkpoint experiments/three_stage_uieb/workdir/checkpoints/stage3/stage3_best.pth
 ```
+
+External EUVP test:
+
+```bash
+python experiments/three_stage_uieb/test_euvp.py --checkpoint experiments/three_stage_uieb/workdir/checkpoints/stage3/stage3_best.pth
+```
+
+Run both UIEB held-out split test and EUVP external test:
+
+```bash
+bash experiments/three_stage_uieb/run_tests.sh
+```
+
+Optional overrides:
+
+```bash
+CHECKPOINT=/path/to/checkpoint.pth DEVICE=cuda:0 bash experiments/three_stage_uieb/run_tests.sh
+```
