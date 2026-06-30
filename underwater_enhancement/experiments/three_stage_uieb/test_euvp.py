@@ -63,12 +63,24 @@ def run(args: argparse.Namespace) -> None:
     metrics_csv = Path(args.output_dir) / "metrics.csv"
     average_csv = Path(args.output_dir) / "average_metrics.csv"
     attention_csv = Path(args.output_dir) / "attention.csv"
+    metric_columns = [
+        "dataset",
+        "image_name",
+        "input_path",
+        "reference_path",
+        "enhanced_path",
+        "PSNR",
+        "SSIM",
+        "UIQM",
+        "UCIQE",
+    ]
     rows = []
     attn_rows = []
 
     with torch.no_grad():
         for dataset in build_euvp_sets(args.euvp_root):
             if not dataset.images:
+                print(f"[euvp-test] skip empty set: {dataset.name} ({dataset.input_dir})")
                 continue
             for path in tqdm(dataset.images, desc=f"Testing {dataset.name}"):
                 pil = pil_loader(path, args.image_size)
@@ -81,7 +93,7 @@ def run(args: argparse.Namespace) -> None:
                 save_image_rgb(out_path, enhanced_img)
 
                 ref_path = dataset.reference_for(path)
-                target = read_image_rgb(ref_path) if ref_path else None
+                target = np.array(pil_loader(ref_path, args.image_size)) if ref_path else None
                 comparison_images = [raw, enhanced_img] if target is None else [raw, enhanced_img, target]
                 comparison_labels = ["input", "enhanced"] if target is None else ["input", "enhanced", "reference"]
                 save_comparison(cmp_root / dataset.name / rel, comparison_images, comparison_labels)
@@ -105,8 +117,13 @@ def run(args: argparse.Namespace) -> None:
                     })
 
     metrics_csv.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(metrics_csv, index=False)
-    save_average_metrics(metrics_csv, average_csv)
+    pd.DataFrame(rows, columns=metric_columns).to_csv(metrics_csv, index=False)
+    if rows:
+        save_average_metrics(metrics_csv, average_csv)
+    else:
+        pd.DataFrame(columns=["PSNR", "SSIM", "UIQM", "UCIQE"]).to_csv(average_csv)
+        print(f"[euvp-test] no EUVP images found under {args.euvp_root}")
+        print("[euvp-test] wrote empty metrics files with headers.")
     if attn_rows:
         pd.DataFrame(attn_rows).to_csv(attention_csv, index=False)
     print(f"[euvp-test] wrote {metrics_csv}")

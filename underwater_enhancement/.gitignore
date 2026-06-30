@@ -22,3 +22,18 @@ logs/
 
 lagacy/
 
+experiments/three_stage_uieb/workdir/logs/
+
+experiments/three_stage_uieb/workdir/samples/
+
+experiments/three_stage_uieb/workdir/splits/
+
+experiments/three_stage_uieb/workdir/synthetic_degraded/
+
+experiments/three_stage_uieb/workdir/test_results/comparisons/
+
+experiments/three_stage_uieb/workdir/test_results/images/
+
+experiments/three_stage_uieb/workdir/euvp_test_results/comparisons/
+
+experiments/three_stage_uieb/workdir/euvp_test_results/images/

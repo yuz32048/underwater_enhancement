@@ -59,8 +59,9 @@ def run(args: argparse.Namespace) -> None:
             rel = raw_path.relative_to(test_raw).with_suffix(".png")
             out_path = image_dir / rel
             save_image_rgb(out_path, enhanced_img)
-            save_comparison(comparison_dir / rel, [raw, enhanced_img, read_image_rgb(ref_path)], ["raw", "enhanced", "reference"])
-            metric_row = calculate_metrics(enhanced_img, read_image_rgb(ref_path))
+            target = np.array(pil_loader(ref_path, args.image_size))
+            save_comparison(comparison_dir / rel, [raw, enhanced_img, target], ["raw", "enhanced", "reference"])
+            metric_row = calculate_metrics(enhanced_img, target)
             rows.append({
                 "dataset": "UIEB_test_split",
                 "image_name": raw_path.name,
