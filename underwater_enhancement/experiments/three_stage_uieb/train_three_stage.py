@@ -137,11 +137,14 @@ def prepare_synthetic(args: argparse.Namespace) -> None:
 def prepare_train_classification(args: argparse.Namespace) -> Path:
     classified_root = Path(args.workdir) / "classified_train"
     csv_path = Path(args.workdir) / "logs/train_classification.csv"
-    if csv_path.exists() and not args.overwrite:
+    has_classified_images = any(list_images(classified_root / class_dir) for class_dir in BRANCH_TO_CLASS_DIR.values())
+    if csv_path.exists() and has_classified_images and not args.overwrite and not args.overwrite_branch_pretrain:
         print(f"[stage1] Using existing train classification: {classified_root}")
         return classified_root
-    if classified_root.exists() and args.overwrite:
+    if classified_root.exists() and (args.overwrite or args.overwrite_branch_pretrain or not has_classified_images):
         shutil.rmtree(classified_root)
+    if csv_path.exists() and (args.overwrite or args.overwrite_branch_pretrain or not has_classified_images):
+        csv_path.unlink()
     classify_args = argparse.Namespace(
         input_dir=str(Path(args.workdir) / "splits/train/raw"),
         output_dir=str(classified_root),
@@ -202,14 +205,46 @@ class MixedUnpairedDataset(Dataset):
 
 
 class ClassifiedBranchPairDataset(Dataset):
-    def __init__(self, branch: str, classified_root: str | Path, reference_dir: str | Path, image_size: int):
+    def __init__(
+        self,
+        branch: str,
+        classified_root: str | Path,
+        reference_dir: str | Path,
+        image_size: int,
+        synthetic_root: str | Path | None = None,
+        synthetic_ratio: float = 0.0,
+        seed: int = 42,
+    ):
         class_dir = BRANCH_TO_CLASS_DIR[branch]
         self.inputs = list_images(Path(classified_root) / class_dir)
         refs = {p.stem.lower(): p for p in list_images(reference_dir)}
         self.pairs = [(inp, refs[inp.stem.lower()]) for inp in self.inputs if inp.stem.lower() in refs]
+        self.real_pair_count = len(self.pairs)
+        self.synthetic_pair_count = 0
+        if synthetic_root is not None and synthetic_ratio > 0:
+            synthetic_pairs = self._synthetic_pairs(branch, synthetic_root, refs)
+            random.Random(seed).shuffle(synthetic_pairs)
+            if self.real_pair_count > 0:
+                target_count = int(round(self.real_pair_count * synthetic_ratio))
+                synthetic_pairs = synthetic_pairs[:target_count]
+            self.synthetic_pair_count = len(synthetic_pairs)
+            self.pairs.extend(synthetic_pairs)
         self.image_size = image_size
         if not self.pairs:
             raise FileNotFoundError(f"No classified train pairs for {branch} in {classified_root}")
+
+    @staticmethod
+    def _synthetic_pairs(branch: str, synthetic_root: str | Path, refs: dict[str, Path]) -> list[tuple[Path, Path]]:
+        class_dir = BRANCH_TO_CLASS_DIR[branch]
+        pairs: list[tuple[Path, Path]] = []
+        for img in list_images(Path(synthetic_root) / class_dir):
+            stem = img.stem
+            for suffix in (f"_{class_dir}", "_blue", "_green", "_lowlight", "_blur"):
+                stem = stem.removesuffix(suffix)
+            ref = refs.get(stem.lower())
+            if ref is not None:
+                pairs.append((img, ref))
+        return pairs
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -311,6 +346,11 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
         return save_dir
 
     device = _device(args.device)
+    if args.branch_use_synthetic:
+        print(
+            "[stage1-v4] branch_use_synthetic is enabled: synthetic degraded images "
+            "will be used as paired branch supervision for this ablation."
+        )
     l1 = nn.L1Loss()
     ssim = SSIMLoss().to(device)
     perceptual = SafePerceptualLoss().to(device)
@@ -319,10 +359,23 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
 
     for branch in BRANCHES:
         try:
-            dataset = ClassifiedBranchPairDataset(branch, classified_root, reference_dir, args.image_size)
+            dataset = ClassifiedBranchPairDataset(
+                branch,
+                classified_root,
+                reference_dir,
+                args.image_size,
+                synthetic_root=Path(args.workdir) / "synthetic_degraded/train" if args.branch_use_synthetic else None,
+                synthetic_ratio=args.branch_synthetic_ratio if args.branch_use_synthetic else 0.0,
+                seed=args.seed,
+            )
         except FileNotFoundError as exc:
             print(f"[stage1] skip {branch} branch pretraining: {exc}")
             continue
+        if args.branch_use_synthetic:
+            print(
+                f"[stage1-v4] {branch} branch pairs: "
+                f"real={dataset.real_pair_count}, synthetic={dataset.synthetic_pair_count}, total={len(dataset)}"
+            )
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=False)
         model = branch_from_name(branch).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=args.stage1_branch_lr, betas=(0.5, 0.999))
@@ -553,8 +606,8 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--val-ssim-weight", type=float, default=10.0)
     parser.add_argument("--stage1-branch-epochs", type=int, default=10)
     parser.add_argument("--stage1-epochs", type=int, default=30)
-    parser.add_argument("--stage2-epochs", type=int, default=80)
-    parser.add_argument("--stage3-epochs", type=int, default=15)
+    parser.add_argument("--stage2-epochs", type=int, default=30)
+    parser.add_argument("--stage3-epochs", type=int, default=5)
     parser.add_argument("--stage1-branch-lr", type=float, default=2e-4)
     parser.add_argument("--stage1-lr", type=float, default=2e-4)
     parser.add_argument("--stage2-lr", type=float, default=2e-4)
@@ -563,6 +616,8 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--stage2-checkpoint", default="")
     parser.add_argument("--no-branch-expert-pretrain", action="store_true")
     parser.add_argument("--overwrite-branch-pretrain", action="store_true")
+    parser.add_argument("--branch-use-synthetic", action="store_true")
+    parser.add_argument("--branch-synthetic-ratio", type=float, default=1.0)
     parser.add_argument("--synthetic-ratio", type=float, default=0.5)
     parser.add_argument("--lambda-l1", type=float, default=1.0)
     parser.add_argument("--lambda-ssim", type=float, default=0.5)
