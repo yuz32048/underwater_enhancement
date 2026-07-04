@@ -322,6 +322,22 @@ def _save_checkpoint(path: str | Path, model: CycleGAN, optim_g, optim_d, epoch:
     }, path)
 
 
+def _enabled_branches(args: argparse.Namespace) -> list[str] | None:
+    raw = getattr(args, "enabled_branches", "")
+    if not raw:
+        return None
+    branches = [item.strip() for item in raw.split(",") if item.strip()]
+    return branches or None
+
+
+def _build_cyclegan(args: argparse.Namespace) -> CycleGAN:
+    return CycleGAN(
+        fusion=args.fusion,
+        enabled_branches=_enabled_branches(args),
+        use_multibranch=not getattr(args, "single_generator", False),
+    )
+
+
 def _paired_loader(raw_dir: Path, reference_dir: Path, image_size: int, batch_size: int, workers: int, shuffle: bool) -> DataLoader:
     pairs = build_uieb_pairs(raw_dir, reference_dir)
     dataset = PairedImageDataset(pairs, image_size)
@@ -481,8 +497,8 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
 
 def train_stage1(args: argparse.Namespace) -> Path:
     device = _device(args.device)
-    model = CycleGAN(fusion=args.fusion).to(device)
-    if not args.no_branch_expert_pretrain:
+    model = _build_cyclegan(args).to(device)
+    if not args.no_branch_expert_pretrain and not getattr(args, "single_generator", False):
         branch_dir = pretrain_branch_experts(args)
         model.G_AB.load_branch_weights(branch_dir, strict=False)
     train_loader = _paired_loader(
@@ -507,6 +523,8 @@ def train_stage1(args: argparse.Namespace) -> Path:
     for epoch in range(1, args.stage1_epochs + 1):
         pbar = tqdm(train_loader, desc=f"Stage 1 epoch {epoch}/{args.stage1_epochs}")
         for raw, target in pbar:
+            if args.max_train_batches > 0 and step >= args.max_train_batches:
+                break
             raw = raw.to(device)
             target = target.to(device)
             output = model.G_AB(raw)
@@ -600,7 +618,7 @@ def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs
         print(f"[{stage}] skip because epochs <= 0, copied checkpoint to: {target}")
         return target
     device = _device(args.device)
-    model = CycleGAN(fusion=args.fusion).to(device)
+    model = _build_cyclegan(args).to(device)
     _load_model(resume, model, device)
     if partial_unfreeze:
         partial_unfreeze_branch_cnns(model)
@@ -642,6 +660,8 @@ def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs
     for epoch in range(1, epochs + 1):
         pbar = tqdm(loader, desc=f"{stage} epoch {epoch}/{epochs}")
         for real_a, real_b in pbar:
+            if args.max_train_batches > 0 and step >= args.max_train_batches:
+                break
             real_a = real_a.to(device)
             real_b = real_b.to(device)
             fake_b, attn_a = model.G_AB(real_a, return_attention=True)
@@ -750,7 +770,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         ],
         default="attention",
     )
+    parser.add_argument("--enabled-branches", default="", help="Comma-separated subset from blue,green,lowlight,blur.")
+    parser.add_argument("--single-generator", action="store_true", help="Use a single generator instead of degradation branches.")
     parser.add_argument("--sample-every", type=int, default=200)
+    parser.add_argument("--max-train-batches", type=int, default=0)
     parser.add_argument("--val-max-images", type=int, default=0)
     parser.add_argument("--val-ssim-weight", type=float, default=10.0)
     parser.add_argument("--stage1-branch-epochs", type=int, default=10)

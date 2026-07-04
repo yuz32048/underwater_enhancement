@@ -27,7 +27,13 @@ def _device(name: str) -> torch.device:
 def _load_model(checkpoint: str | Path, device: torch.device) -> CycleGAN:
     ckpt = torch.load(checkpoint, map_location=device)
     ckpt_args = ckpt.get("args", {})
-    model = CycleGAN(fusion=ckpt_args.get("fusion", "attention")).to(device)
+    enabled_raw = ckpt_args.get("enabled_branches", "")
+    enabled_branches = [item.strip() for item in enabled_raw.split(",") if item.strip()] if enabled_raw else None
+    model = CycleGAN(
+        fusion=ckpt_args.get("fusion", "attention"),
+        enabled_branches=enabled_branches,
+        use_multibranch=not ckpt_args.get("single_generator", False),
+    ).to(device)
     model.load_state_dict(ckpt.get("model", ckpt), strict=False)
     model.eval()
     return model
@@ -47,6 +53,8 @@ def run(args: argparse.Namespace) -> None:
     pairs = build_uieb_pairs(test_raw, test_reference)
     if not pairs:
         raise FileNotFoundError(f"No test pairs found in {test_raw} and {test_reference}")
+    if getattr(args, "test_max_images", 0) > 0:
+        pairs = pairs[: args.test_max_images]
 
     rows = []
     attn_rows = []
@@ -99,6 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=str(default_workdir / "test_results"))
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--test-max-images", type=int, default=0)
     return parser.parse_args()
 
 
