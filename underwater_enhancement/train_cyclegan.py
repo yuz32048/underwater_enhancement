@@ -290,7 +290,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lambda-cycle", type=float, default=10.0)
     parser.add_argument("--lambda-identity", type=float, default=5.0)
     parser.add_argument("--lambda-ssim", type=float, default=1.0)
-    parser.add_argument("--fusion", choices=["attention", "concat", "average"], default="attention")
+    parser.add_argument(
+        "--fusion",
+        choices=[
+            "attention",
+            "temperature_attention",
+            "concat",
+            "residual_concat",
+            "gated_residual",
+            "concat_se",
+            "average",
+        ],
+        default="attention",
+    )
     parser.add_argument("--freeze-branches", action="store_true")
     parser.add_argument("--plain-cyclegan", action="store_true")
     parser.add_argument("--no-physical-degradation", action="store_true")

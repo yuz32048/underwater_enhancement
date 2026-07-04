@@ -5,7 +5,15 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from models.attention import AttentionFusion, AverageFusion, ConcatFusion
+from models.attention import (
+    AttentionFusion,
+    AverageFusion,
+    ConcatFusion,
+    ConcatSEFusion,
+    GatedResidualFusion,
+    ResidualConcatFusion,
+    TemperatureAttentionFusion,
+)
 from models.branches import BlurBranch, BlueCastBranch, GreenCastBranch, LowLightBranch
 
 
@@ -87,6 +95,14 @@ class MultiBranchGenerator(nn.Module):
                 p.requires_grad = False
         if fusion == "concat":
             self.fusion = ConcatFusion(len(self.branch_names))
+        elif fusion == "residual_concat":
+            self.fusion = ResidualConcatFusion(len(self.branch_names))
+        elif fusion == "gated_residual":
+            self.fusion = GatedResidualFusion(len(self.branch_names))
+        elif fusion == "concat_se":
+            self.fusion = ConcatSEFusion(len(self.branch_names))
+        elif fusion == "temperature_attention":
+            self.fusion = TemperatureAttentionFusion(len(self.branch_names))
         elif fusion == "average":
             self.fusion = AverageFusion(len(self.branch_names))
         else:

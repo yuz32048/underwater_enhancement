@@ -42,6 +42,7 @@ BRANCH_WEIGHT_NAMES = {
     "blur": "blur_branch.pth",
 }
 SYNTHETIC_DIRS = ["blue_cast", "green_cast", "low_light", "blur"]
+SYNTHETIC_SUFFIXES = ("_blue_cast", "_green_cast", "_low_light", "_blue", "_green", "_lowlight", "_blur")
 
 
 def _device(name: str) -> torch.device:
@@ -53,6 +54,13 @@ def _copy_pair(raw_path: Path, ref_path: Path, raw_out: Path, ref_out: Path) -> 
     ref_out.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(raw_path, raw_out)
     shutil.copy2(ref_path, ref_out)
+
+
+def _source_key(path: Path) -> str:
+    stem = path.stem.lower()
+    for suffix in SYNTHETIC_SUFFIXES:
+        stem = stem.removesuffix(suffix)
+    return stem
 
 
 def prepare_splits(args: argparse.Namespace) -> None:
@@ -134,19 +142,19 @@ def prepare_synthetic(args: argparse.Namespace) -> None:
     print(f"[prepare] synthetic degraded images are train-only domain augmentation: {output_root}")
 
 
-def prepare_train_classification(args: argparse.Namespace) -> Path:
-    classified_root = Path(args.workdir) / "classified_train"
-    csv_path = Path(args.workdir) / "logs/train_classification.csv"
+def prepare_split_classification(args: argparse.Namespace, split: str) -> Path:
+    classified_root = Path(args.workdir) / f"classified_{split}"
+    csv_path = Path(args.workdir) / f"logs/{split}_classification.csv"
     has_classified_images = any(list_images(classified_root / class_dir) for class_dir in BRANCH_TO_CLASS_DIR.values())
     if csv_path.exists() and has_classified_images and not args.overwrite and not args.overwrite_branch_pretrain:
-        print(f"[stage1] Using existing train classification: {classified_root}")
+        print(f"[stage1] Using existing {split} classification: {classified_root}")
         return classified_root
     if classified_root.exists() and (args.overwrite or args.overwrite_branch_pretrain or not has_classified_images):
         shutil.rmtree(classified_root)
     if csv_path.exists() and (args.overwrite or args.overwrite_branch_pretrain or not has_classified_images):
         csv_path.unlink()
     classify_args = argparse.Namespace(
-        input_dir=str(Path(args.workdir) / "splits/train/raw"),
+        input_dir=str(Path(args.workdir) / f"splits/{split}/raw"),
         output_dir=str(classified_root),
         csv_path=str(csv_path),
         blue_b_threshold=args.blue_b_threshold,
@@ -160,6 +168,14 @@ def prepare_train_classification(args: argparse.Namespace) -> Path:
     )
     classify_uieb(classify_args)
     return classified_root
+
+
+def prepare_train_classification(args: argparse.Namespace) -> Path:
+    return prepare_split_classification(args, "train")
+
+
+def prepare_validation_classification(args: argparse.Namespace) -> Path:
+    return prepare_split_classification(args, "validation")
 
 
 class MixedUnpairedDataset(Dataset):
@@ -197,9 +213,11 @@ class MixedUnpairedDataset(Dataset):
         a_path = self.domain_a[idx % len(self.domain_a)]
         a = np.array(pil_loader(a_path, self.image_size))
         b_path = self.domain_b[self.rng.randrange(len(self.domain_b))]
-        if len(self.domain_b) > 1 and a_path.stem.lower() == b_path.stem.lower():
-            while a_path.stem.lower() == b_path.stem.lower():
+        if len(self.domain_b) > 1 and _source_key(a_path) == _source_key(b_path):
+            tries = 0
+            while _source_key(a_path) == _source_key(b_path) and tries < 20:
                 b_path = self.domain_b[self.rng.randrange(len(self.domain_b))]
+                tries += 1
         b = np.array(pil_loader(b_path, self.image_size))
         return image_to_tensor(a), image_to_tensor(b)
 
@@ -238,10 +256,7 @@ class ClassifiedBranchPairDataset(Dataset):
         class_dir = BRANCH_TO_CLASS_DIR[branch]
         pairs: list[tuple[Path, Path]] = []
         for img in list_images(Path(synthetic_root) / class_dir):
-            stem = img.stem
-            for suffix in (f"_{class_dir}", "_blue", "_green", "_lowlight", "_blur"):
-                stem = stem.removesuffix(suffix)
-            ref = refs.get(stem.lower())
+            ref = refs.get(_source_key(img))
             if ref is not None:
                 pairs.append((img, ref))
         return pairs
@@ -337,9 +352,33 @@ def evaluate_paired(model: CycleGAN, raw_dir: Path, reference_dir: Path, args: a
     return {"PSNR": psnr, "SSIM": ssim, "UIQM": uiqm, "UCIQE": uciqe, "score": psnr + args.val_ssim_weight * ssim}
 
 
+def evaluate_branch_model(model: nn.Module, dataset: ClassifiedBranchPairDataset, args: argparse.Namespace, device: torch.device) -> dict[str, float]:
+    model.eval()
+    rows = []
+    pairs = dataset.pairs[:args.val_max_images] if args.val_max_images > 0 else dataset.pairs
+    with torch.no_grad():
+        for raw_path, ref_path in pairs:
+            raw = np.array(pil_loader(raw_path, args.image_size))
+            tensor = image_to_tensor(raw).unsqueeze(0).to(device)
+            enhanced = tensor_to_image(model(tensor))
+            target = np.array(pil_loader(ref_path, args.image_size))
+            rows.append(calculate_metrics(enhanced, target))
+    model.train()
+    if not rows:
+        return {"PSNR": 0.0, "SSIM": 0.0, "UIQM": 0.0, "UCIQE": 0.0, "score": -float("inf")}
+    df = pd.DataFrame(rows)
+    psnr = float(pd.to_numeric(df["PSNR"], errors="coerce").mean())
+    ssim = float(pd.to_numeric(df["SSIM"], errors="coerce").mean())
+    uiqm = float(pd.to_numeric(df["UIQM"], errors="coerce").mean())
+    uciqe = float(pd.to_numeric(df["UCIQE"], errors="coerce").mean())
+    return {"PSNR": psnr, "SSIM": ssim, "UIQM": uiqm, "UCIQE": uciqe, "score": psnr + args.val_ssim_weight * ssim}
+
+
 def pretrain_branch_experts(args: argparse.Namespace) -> Path:
     classified_root = prepare_train_classification(args)
+    val_classified_root = prepare_validation_classification(args)
     reference_dir = Path(args.workdir) / "splits/train/reference"
+    val_reference_dir = Path(args.workdir) / "splits/validation/reference"
     save_dir = Path(args.workdir) / "checkpoints/stage1_branch_experts"
     if all((save_dir / BRANCH_WEIGHT_NAMES[b]).exists() for b in BRANCHES) and not args.overwrite_branch_pretrain:
         print(f"[stage1] Using existing branch expert weights: {save_dir}")
@@ -355,6 +394,7 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
     ssim = SSIMLoss().to(device)
     perceptual = SafePerceptualLoss().to(device)
     log = CSVLogger(Path(args.workdir) / "logs/stage1_branch_pretrain.csv", ["branch", "epoch", "step", "loss", "l1", "ssim", "perceptual"])
+    val_records = []
     save_dir.mkdir(parents=True, exist_ok=True)
 
     for branch in BRANCHES:
@@ -371,6 +411,19 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
         except FileNotFoundError as exc:
             print(f"[stage1] skip {branch} branch pretraining: {exc}")
             continue
+        try:
+            val_dataset = ClassifiedBranchPairDataset(
+                branch,
+                val_classified_root,
+                val_reference_dir,
+                args.image_size,
+                synthetic_root=None,
+                synthetic_ratio=0.0,
+                seed=args.seed,
+            )
+        except FileNotFoundError as exc:
+            val_dataset = None
+            print(f"[stage1] {branch} branch has no validation pairs, will save final epoch: {exc}")
         if args.branch_use_synthetic:
             print(
                 f"[stage1-v4] {branch} branch pairs: "
@@ -380,6 +433,8 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
         model = branch_from_name(branch).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=args.stage1_branch_lr, betas=(0.5, 0.999))
         step = 0
+        best_score = -float("inf")
+        best_path = save_dir / BRANCH_WEIGHT_NAMES[branch]
         for epoch in range(1, args.stage1_branch_epochs + 1):
             pbar = tqdm(loader, desc=f"Stage 1 {branch} expert epoch {epoch}/{args.stage1_branch_epochs}")
             for raw, target in pbar:
@@ -396,7 +451,31 @@ def pretrain_branch_experts(args: argparse.Namespace) -> Path:
                 step += 1
                 pbar.set_postfix(loss=f"{loss.item():.4f}")
                 log.log({"branch": branch, "epoch": epoch, "step": step, "loss": loss.item(), "l1": loss_l1.item(), "ssim": loss_ssim.item(), "perceptual": loss_perc.item()})
-        torch.save({"model": model.state_dict(), "branch": branch, "epochs": args.stage1_branch_epochs}, save_dir / BRANCH_WEIGHT_NAMES[branch])
+            if val_dataset is None:
+                continue
+            val = evaluate_branch_model(model, val_dataset, args, device)
+            val_records.append({"branch": branch, "epoch": epoch, "step": step, "validation_pairs": len(val_dataset), **val})
+            pd.DataFrame(val_records).to_csv(Path(args.workdir) / "logs/stage1_branch_validation.csv", index=False)
+            if val["score"] > best_score:
+                best_score = val["score"]
+                torch.save(
+                    {
+                        "model": model.state_dict(),
+                        "branch": branch,
+                        "epoch": epoch,
+                        "step": step,
+                        "score": best_score,
+                        "PSNR": val["PSNR"],
+                        "SSIM": val["SSIM"],
+                        "UIQM": val["UIQM"],
+                        "UCIQE": val["UCIQE"],
+                        "args": vars(args),
+                    },
+                    best_path,
+                )
+                print(f"[Stage 1 {branch} expert] best score={best_score:.4f}")
+        if val_dataset is None:
+            torch.save({"model": model.state_dict(), "branch": branch, "epochs": args.stage1_branch_epochs}, best_path)
     return save_dir
 
 
@@ -481,6 +560,14 @@ def _trainable_params(modules: list[nn.Module]) -> list[torch.nn.Parameter]:
     return params
 
 
+def _next_batch(loader: DataLoader, iterator):
+    try:
+        return next(iterator), iterator
+    except StopIteration:
+        iterator = iter(loader)
+        return next(iterator), iterator
+
+
 def attention_balance_loss_from_weights(attn: torch.Tensor | None, model: CycleGAN) -> torch.Tensor:
     if attn is None:
         return next(model.parameters()).new_tensor(0.0)
@@ -502,6 +589,16 @@ def _unpaired_dataset(args: argparse.Namespace) -> MixedUnpairedDataset:
 
 
 def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs: int, lr: float, partial_unfreeze: bool) -> Path:
+    if epochs <= 0:
+        ckpt_dir = Path(args.workdir) / f"checkpoints/{stage}"
+        target = ckpt_dir / f"{stage}_best.pth"
+        latest = ckpt_dir / "latest.pth"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        if Path(resume).exists():
+            shutil.copy2(resume, target)
+            shutil.copy2(resume, latest)
+        print(f"[{stage}] skip because epochs <= 0, copied checkpoint to: {target}")
+        return target
     device = _device(args.device)
     model = CycleGAN(fusion=args.fusion).to(device)
     _load_model(resume, model, device)
@@ -513,12 +610,29 @@ def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs
     dataset = _unpaired_dataset(args)
     print(f"[{stage}] degraded_domain: real_raw={len(dataset.real_raw)}, synthetic_used={len(dataset.synthetic)}, clean={len(dataset.domain_b)}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    anchor_loader = None
+    anchor_iter = None
+    use_anchor = stage == "stage2" and (args.lambda_stage2_anchor_l1 > 0 or args.lambda_stage2_anchor_ssim > 0)
+    if use_anchor:
+        anchor_loader = _paired_loader(
+            Path(args.workdir) / "splits/train/raw",
+            Path(args.workdir) / "splits/train/reference",
+            args.image_size,
+            args.batch_size,
+            args.num_workers,
+            True,
+        )
+        anchor_iter = iter(anchor_loader)
+        print(
+            f"[{stage}] paired anchor enabled: "
+            f"lambda_l1={args.lambda_stage2_anchor_l1}, lambda_ssim={args.lambda_stage2_anchor_ssim}"
+        )
     optim_g = torch.optim.Adam(_trainable_params([model.G_AB, model.G_BA]), lr=lr, betas=(0.5, 0.999))
     optim_d = torch.optim.Adam(list(model.D_A.parameters()) + list(model.D_B.parameters()), lr=lr, betas=(0.5, 0.999))
     adv = nn.MSELoss()
     l1 = nn.L1Loss()
     ssim = SSIMLoss().to(device)
-    log = CSVLogger(Path(args.workdir) / f"logs/{stage}_train.csv", ["epoch", "step", "loss_g", "loss_d", "loss_adv", "loss_cycle", "loss_identity", "loss_ssim", "loss_attention"])
+    log = CSVLogger(Path(args.workdir) / f"logs/{stage}_train.csv", ["epoch", "step", "loss_g", "loss_d", "loss_adv", "loss_cycle", "loss_identity", "loss_ssim", "loss_attention", "loss_anchor_l1", "loss_anchor_ssim"])
     ckpt_dir = Path(args.workdir) / f"checkpoints/{stage}"
     sample_dir = Path(args.workdir) / f"samples/{stage}"
     val_records = []
@@ -541,12 +655,23 @@ def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs
             loss_identity = l1(id_b, real_b)
             loss_ssim = ssim(rec_a, real_a) + ssim(rec_b, real_b)
             loss_attention = attention_balance_loss_from_weights(attn_a, model)
+            loss_anchor_l1 = real_a.new_tensor(0.0)
+            loss_anchor_ssim = real_a.new_tensor(0.0)
+            if use_anchor and anchor_loader is not None and anchor_iter is not None:
+                (anchor_raw, anchor_target), anchor_iter = _next_batch(anchor_loader, anchor_iter)
+                anchor_raw = anchor_raw.to(device)
+                anchor_target = anchor_target.to(device)
+                anchor_out = model.G_AB(anchor_raw)
+                loss_anchor_l1 = l1(anchor_out, anchor_target)
+                loss_anchor_ssim = ssim(anchor_out, anchor_target)
             loss_g = (
                 args.lambda_adv * loss_adv
                 + args.lambda_cycle * loss_cycle
                 + args.lambda_identity * loss_identity
                 + args.lambda_ssim_cycle * loss_ssim
                 + args.lambda_attention_balance * loss_attention
+                + args.lambda_stage2_anchor_l1 * loss_anchor_l1
+                + args.lambda_stage2_anchor_ssim * loss_anchor_ssim
             )
             optim_g.zero_grad()
             loss_g.backward()
@@ -561,7 +686,19 @@ def train_cycle_stage(args: argparse.Namespace, stage: str, resume: Path, epochs
 
             step += 1
             pbar.set_postfix(g=f"{loss_g.item():.3f}", d=f"{loss_d.item():.3f}")
-            log.log({"epoch": epoch, "step": step, "loss_g": loss_g.item(), "loss_d": loss_d.item(), "loss_adv": loss_adv.item(), "loss_cycle": loss_cycle.item(), "loss_identity": loss_identity.item(), "loss_ssim": loss_ssim.item(), "loss_attention": loss_attention.item()})
+            log.log({
+                "epoch": epoch,
+                "step": step,
+                "loss_g": loss_g.item(),
+                "loss_d": loss_d.item(),
+                "loss_adv": loss_adv.item(),
+                "loss_cycle": loss_cycle.item(),
+                "loss_identity": loss_identity.item(),
+                "loss_ssim": loss_ssim.item(),
+                "loss_attention": loss_attention.item(),
+                "loss_anchor_l1": loss_anchor_l1.item(),
+                "loss_anchor_ssim": loss_anchor_ssim.item(),
+            })
             if step % args.sample_every == 0:
                 save_comparison(sample_dir / f"step_{step}.png", [tensor_to_image(real_a), tensor_to_image(fake_b), tensor_to_image(real_b)], ["degraded", "G_AB", "clean"])
 
@@ -600,14 +737,26 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--fusion", choices=["attention", "concat", "average"], default="attention")
+    parser.add_argument(
+        "--fusion",
+        choices=[
+            "attention",
+            "temperature_attention",
+            "concat",
+            "residual_concat",
+            "gated_residual",
+            "concat_se",
+            "average",
+        ],
+        default="attention",
+    )
     parser.add_argument("--sample-every", type=int, default=200)
     parser.add_argument("--val-max-images", type=int, default=0)
     parser.add_argument("--val-ssim-weight", type=float, default=10.0)
     parser.add_argument("--stage1-branch-epochs", type=int, default=10)
     parser.add_argument("--stage1-epochs", type=int, default=30)
-    parser.add_argument("--stage2-epochs", type=int, default=30)
-    parser.add_argument("--stage3-epochs", type=int, default=5)
+    parser.add_argument("--stage2-epochs", type=int, default=80)
+    parser.add_argument("--stage3-epochs", type=int, default=15)
     parser.add_argument("--stage1-branch-lr", type=float, default=2e-4)
     parser.add_argument("--stage1-lr", type=float, default=2e-4)
     parser.add_argument("--stage2-lr", type=float, default=2e-4)
@@ -627,6 +776,8 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lambda-identity", type=float, default=7.5)
     parser.add_argument("--lambda-ssim-cycle", type=float, default=2.0)
     parser.add_argument("--lambda-attention-balance", type=float, default=0.05)
+    parser.add_argument("--lambda-stage2-anchor-l1", type=float, default=0.0)
+    parser.add_argument("--lambda-stage2-anchor-ssim", type=float, default=0.0)
     parser.add_argument("--blue-b-threshold", type=float, default=-4.0)
     parser.add_argument("--green-a-threshold", type=float, default=-2.0)
     parser.add_argument("--green-b-threshold", type=float, default=2.0)
