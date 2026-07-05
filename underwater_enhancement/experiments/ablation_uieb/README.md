@@ -75,10 +75,44 @@ python -m experiments.ablation_uieb.run_ablations run --ablations A3 --stage1-ep
 
 ```bash
 experiments/ablation_uieb/workdir/summary.csv
+experiments/ablation_uieb/workdir/euvp_summary.csv
 ```
 
 也可以单独重新汇总：
 
 ```bash
 python -m experiments.ablation_uieb.run_ablations summary
+python -m experiments.ablation_uieb.run_ablations summary-euvp
+```
+
+## EUVP 测试
+
+消融入口会在每个实验完成 UIEB test split 测试后，自动继续进行 EUVP 测试。每个消融实验的 EUVP 输出目录为：
+
+```bash
+experiments/ablation_uieb/workdir/{ablation_id}_{name}/euvp_test_results
+```
+
+如果所有消融模型已经训练完成，可以一键只在 EUVP 上测试所有消融模型，不重新训练：
+
+```bash
+python -m experiments.ablation_uieb.run_ablations test-euvp --device cuda --fusion concat
+```
+
+只测试 EUVP 的 `test_samples` 子集：
+
+```bash
+python -m experiments.ablation_uieb.run_ablations test-euvp --device cuda --fusion concat --euvp-datasets test_samples
+```
+
+只测试部分消融模型：
+
+```bash
+python -m experiments.ablation_uieb.run_ablations test-euvp --ablations A0,A1,A2 --device cuda --fusion concat
+```
+
+如果只想快速检查 EUVP 测试链路，可以限制每个 EUVP 子集的测试图片数量：
+
+```bash
+python -m experiments.ablation_uieb.run_ablations run --ablations A3 --stage1-epochs 1 --stage2-epochs 0 --stage3-epochs 0 --image-size 64 --batch-size 1 --test-max-images 1 --euvp-test-max-images 1 --device cpu --overwrite
 ```

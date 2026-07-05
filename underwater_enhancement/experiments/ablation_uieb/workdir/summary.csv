@@ -1,0 +1,9 @@
+ablation_id,name,description,PSNR,SSIM,UIQM,UCIQE
+A0,full_model,"Full model with concat fusion, synthetic degraded domain augmentation, branch expert pretraining, and all four degradation branches.",21.246806251453503,0.8739293160444161,1.4141482666022795,4.7102322112348745
+A1,wo_synthetic_degradation,Remove synthetic degraded images from the Stage 2/3 degraded domain.,21.77487598873272,0.8724016948367345,1.3845075982853885,4.883739274247248
+A2,wo_branch_expert_pretrain,Disable branch expert pretraining before Stage 1.,21.201277901682527,0.8671797830781564,1.3529504317986338,4.574983727663083
+A3,wo_multibranch_experts,Replace the multi-branch degradation expert generator with a single generator.,19.95098765790937,0.7355712104761286,1.2655787028764425,4.552161584223123
+A4,wo_blue_branch,Remove the blue-cast branch from the degradation expert set.,21.27760901801018,0.8736366281989815,1.3952543618983793,4.616545182421691
+A5,wo_green_branch,Remove the green-cast branch from the degradation expert set.,21.049403096928916,0.8666383273207906,1.3703171135787675,4.751095986904058
+A6,wo_lowlight_branch,Remove the low-light branch from the degradation expert set.,21.611801041632823,0.8719885252118542,1.4078550715195506,4.835545968292351
+A7,wo_blur_branch,Remove the blur branch from the degradation expert set.,21.355514176133585,0.8718383865130676,1.3552811531195963,4.819775568811517

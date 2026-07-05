@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from experiments.three_stage_uieb import test_three_stage, train_three_stage
+from experiments.three_stage_uieb import test_euvp, test_three_stage, train_three_stage
 
 
 @dataclass(frozen=True)
@@ -135,6 +135,16 @@ def _train_and_test(args: argparse.Namespace, spec: AblationSpec) -> None:
         test_max_images=args.test_max_images,
     )
     test_three_stage.run(test_args)
+    euvp_args = argparse.Namespace(
+        checkpoint=str(checkpoint),
+        euvp_root=args.euvp_root,
+        output_dir=str(workdir / "euvp_test_results"),
+        image_size=run_args.image_size,
+        device=run_args.device,
+        test_max_images=args.euvp_test_max_images,
+        euvp_datasets=args.euvp_datasets,
+    )
+    test_euvp.run(euvp_args)
     metadata = {
         "ablation_id": spec.ablation_id,
         "name": spec.name,
@@ -145,6 +155,25 @@ def _train_and_test(args: argparse.Namespace, spec: AblationSpec) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     with (workdir / "ablation.json").open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+
+def _test_euvp_only(args: argparse.Namespace, spec: AblationSpec) -> None:
+    run_args = _base_train_args(args, spec)
+    workdir = Path(run_args.workdir)
+    checkpoint = workdir / "checkpoints/stage3/stage3_best.pth"
+    if not checkpoint.exists():
+        raise FileNotFoundError(f"Missing checkpoint for {spec.ablation_id} {spec.name}: {checkpoint}")
+    euvp_args = argparse.Namespace(
+        checkpoint=str(checkpoint),
+        euvp_root=args.euvp_root,
+        output_dir=str(workdir / "euvp_test_results"),
+        image_size=run_args.image_size,
+        device=run_args.device,
+        test_max_images=args.euvp_test_max_images,
+        euvp_datasets=args.euvp_datasets,
+    )
+    print(f"[ablation-euvp] {spec.ablation_id} {spec.name}")
+    test_euvp.run(euvp_args)
 
 
 def summarize(args: argparse.Namespace) -> None:
@@ -174,6 +203,33 @@ def summarize(args: argparse.Namespace) -> None:
     print(f"[ablation] wrote {out}")
 
 
+def summarize_euvp(args: argparse.Namespace) -> None:
+    rows: list[dict[str, object]] = []
+    root = Path(args.ablation_root)
+    for spec in ABLATIONS:
+        metrics_path = root / _slug(spec) / "euvp_test_results/average_metrics.csv"
+        if not metrics_path.exists():
+            continue
+        df = pd.read_csv(metrics_path, index_col=0)
+        if "overall" not in df.index:
+            continue
+        row: dict[str, object] = {
+            "ablation_id": spec.ablation_id,
+            "name": spec.name,
+            "description": spec.description,
+        }
+        for key in ["PSNR", "SSIM", "UIQM", "UCIQE"]:
+            if key in df.columns and pd.notna(df.loc["overall", key]):
+                row[key] = float(df.loc["overall", key])
+        rows.append(row)
+    if not rows:
+        raise FileNotFoundError(f"No EUVP ablation metrics found under {root}")
+    out = root / "euvp_summary.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f"[ablation] wrote {out}")
+
+
 def list_ablations() -> None:
     for spec in ABLATIONS:
         overrides = ", ".join(f"{k}={v}" for k, v in spec.overrides.items()) or "default"
@@ -187,6 +243,9 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--ablation-root", default=str(Path(__file__).resolve().parent / "workdir"))
     parser.add_argument("--ablations", default="all", help="Comma-separated IDs/names, e.g. A0,A1,A4, or all.")
     parser.add_argument("--test-max-images", type=int, default=0)
+    parser.add_argument("--euvp-root", default=str(PROJECT_ROOT / "data/raw_underwater/EUVP"))
+    parser.add_argument("--euvp-test-max-images", type=int, default=0)
+    parser.add_argument("--euvp-datasets", default="all", help="Comma-separated EUVP subsets: all, underwater_dark, underwater_imagenet, underwater_scenes, unpaired, test_samples, eval_data.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,8 +254,12 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("list")
     run = sub.add_parser("run")
     add_args(run)
+    euvp = sub.add_parser("test-euvp")
+    add_args(euvp)
     summary = sub.add_parser("summary")
     add_args(summary)
+    euvp_summary = sub.add_parser("summary-euvp")
+    add_args(euvp_summary)
     return parser.parse_args()
 
 
@@ -208,10 +271,19 @@ def main() -> None:
     if args.command == "summary":
         summarize(args)
         return
+    if args.command == "summary-euvp":
+        summarize_euvp(args)
+        return
     specs = _resolve_specs(args.ablations)
+    if args.command == "test-euvp":
+        for spec in specs:
+            _test_euvp_only(args, spec)
+        summarize_euvp(args)
+        return
     for spec in specs:
         _train_and_test(args, spec)
     summarize(args)
+    summarize_euvp(args)
 
 
 if __name__ == "__main__":
