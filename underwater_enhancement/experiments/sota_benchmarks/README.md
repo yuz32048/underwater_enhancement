@@ -44,12 +44,14 @@ experiments/sota_benchmarks/workdir
 ```bash
 experiments/sota_benchmarks/workdir/{model_name}/checkpoints
 experiments/sota_benchmarks/workdir/{model_name}/test_results
+experiments/sota_benchmarks/workdir/{model_name}/euvp_test_results
 ```
 
 总汇总表保存到：
 
 ```bash
 experiments/sota_benchmarks/workdir/summary.csv
+experiments/sota_benchmarks/workdir/euvp_summary.csv
 ```
 
 ## 推荐运行方式
@@ -72,6 +74,24 @@ python -m experiments.sota_benchmarks.benchmark train --model funie-gan
 python -m experiments.sota_benchmarks.benchmark test --model funie-gan
 ```
 
+在 EUVP 上测试单个模型：
+
+```bash
+python -m experiments.sota_benchmarks.benchmark test-euvp --model funie-gan
+```
+
+在 EUVP 上一键测试所有已训练好的 SOTA 模型，不重新训练：
+
+```bash
+python -m experiments.sota_benchmarks.benchmark test-euvp-all --device cuda
+```
+
+只测试 EUVP 的 `test_samples` 子集：
+
+```bash
+python -m experiments.sota_benchmarks.benchmark test-euvp-all --device cuda --euvp-datasets test_samples
+```
+
 可选模型名：
 
 ```bash
@@ -86,6 +106,13 @@ waternet
 
 ```bash
 python -m experiments.sota_benchmarks.benchmark run-all
+```
+
+`run-all` 会同时执行 UIEB test split 和 EUVP 测试，并生成：
+
+```bash
+experiments/sota_benchmarks/workdir/summary.csv
+experiments/sota_benchmarks/workdir/euvp_summary.csv
 ```
 
 ## 常用参数
@@ -142,4 +169,5 @@ python -m experiments.sota_benchmarks.benchmark run-all --device cuda --epochs 3
 
 ```bash
 experiments/sota_benchmarks/workdir/summary.csv
+experiments/sota_benchmarks/workdir/euvp_summary.csv
 ```

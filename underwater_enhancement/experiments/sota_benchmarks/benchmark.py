@@ -27,6 +27,7 @@ from utils.image_io import image_to_tensor, list_images, pil_loader, save_compar
 from utils.logger import CSVLogger
 from utils.seed import set_seed
 
+from experiments.three_stage_uieb.test_euvp import build_euvp_sets
 from experiments.sota_benchmarks.sota_models import build_model, generator_for
 
 MODELS = ["cyclegan", "ugan", "funie-gan", "uwcnn", "waternet"]
@@ -372,6 +373,52 @@ def test(args: argparse.Namespace) -> None:
     print(f"[test] wrote {average_csv}")
 
 
+def test_euvp(args: argparse.Namespace) -> None:
+    set_seed(args.seed)
+    device = _device(args.device)
+    model = build_model(args.model).to(device)
+    checkpoint = Path(args.checkpoint) if args.checkpoint else Path(args.workdir) / args.model / "checkpoints" / "best.pth"
+    _load_checkpoint(checkpoint, model, device)
+    model.eval()
+    output_dir = Path(args.output_dir) if args.output_dir else Path(args.workdir) / args.model / "euvp_test_results"
+    rows: list[dict[str, str | float]] = []
+    for dataset in build_euvp_sets(args.euvp_root, args.euvp_datasets):
+        if not dataset.images:
+            print(f"[euvp-test] skip empty set: {dataset.name} ({dataset.input_dir})")
+            continue
+        images = dataset.images[: args.euvp_test_max_images] if args.euvp_test_max_images > 0 else dataset.images
+        for raw_path in tqdm(images, desc=f"testing {args.model} on {dataset.name}"):
+            raw = np.array(pil_loader(raw_path, args.image_size))
+            enhanced = _enhance(model, args.model, raw, device)
+            rel = raw_path.relative_to(dataset.input_dir).with_suffix(".png")
+            out_path = output_dir / "images" / dataset.name / rel
+            save_image_rgb(out_path, enhanced)
+            ref_path = dataset.reference_for(raw_path)
+            ref = np.array(pil_loader(ref_path, args.image_size)) if ref_path else None
+            comparison_images = [raw, enhanced] if ref is None else [raw, enhanced, ref]
+            comparison_labels = ["input", "enhanced"] if ref is None else ["input", "enhanced", "reference"]
+            save_comparison(output_dir / "comparisons" / dataset.name / rel, comparison_images, comparison_labels)
+            rows.append({
+                "dataset": dataset.name,
+                "model": args.model,
+                "image_name": raw_path.name,
+                "input_path": raw_path.as_posix(),
+                "reference_path": ref_path.as_posix() if ref_path else "",
+                "enhanced_path": out_path.as_posix(),
+                **calculate_metrics(enhanced, ref),
+            })
+    metrics_csv = output_dir / "metrics.csv"
+    average_csv = output_dir / "average_metrics.csv"
+    metrics_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(metrics_csv, index=False)
+    if rows:
+        save_average_metrics(metrics_csv, average_csv)
+    else:
+        pd.DataFrame(columns=["PSNR", "SSIM", "UIQM", "UCIQE"]).to_csv(average_csv)
+    print(f"[euvp-test] wrote {metrics_csv}")
+    print(f"[euvp-test] wrote {average_csv}")
+
+
 def summarize(args: argparse.Namespace) -> None:
     rows: list[dict[str, str | float]] = []
     for model_name in MODELS:
@@ -391,6 +438,25 @@ def summarize(args: argparse.Namespace) -> None:
     print(f"[summary] wrote {out}")
 
 
+def summarize_euvp(args: argparse.Namespace) -> None:
+    rows: list[dict[str, str | float]] = []
+    for model_name in MODELS:
+        path = Path(args.workdir) / model_name / "euvp_test_results" / "average_metrics.csv"
+        if not path.exists():
+            continue
+        df = pd.read_csv(path, index_col=0)
+        if "overall" not in df.index:
+            continue
+        row = {"model": model_name}
+        row.update({k: float(df.loc["overall", k]) for k in ["PSNR", "SSIM", "UIQM", "UCIQE"] if k in df.columns and pd.notna(df.loc["overall", k])})
+        rows.append(row)
+    if not rows:
+        raise FileNotFoundError("No model EUVP average_metrics.csv files found.")
+    out = Path(args.workdir) / "euvp_summary.csv"
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f"[euvp-summary] wrote {out}")
+
+
 def run_all(args: argparse.Namespace) -> None:
     prepare_splits(args)
     for model_name in MODELS:
@@ -401,7 +467,19 @@ def run_all(args: argparse.Namespace) -> None:
         model_args.overwrite = False
         train(model_args)
         test(model_args)
+        test_euvp(model_args)
     summarize(args)
+    summarize_euvp(args)
+
+
+def test_euvp_all(args: argparse.Namespace) -> None:
+    for model_name in MODELS:
+        model_args = argparse.Namespace(**vars(args))
+        model_args.model = model_name
+        model_args.checkpoint = ""
+        model_args.output_dir = ""
+        test_euvp(model_args)
+    summarize_euvp(args)
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -429,6 +507,9 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--val-max-batches", type=int, default=0)
     parser.add_argument("--max-train-batches", type=int, default=0)
     parser.add_argument("--test-max-images", type=int, default=0)
+    parser.add_argument("--euvp-root", default=str(PROJECT_ROOT / "data/raw_underwater/EUVP"))
+    parser.add_argument("--euvp-test-max-images", type=int, default=0)
+    parser.add_argument("--euvp-datasets", default="all", help="Comma-separated EUVP subsets: all, underwater_dark, underwater_imagenet, underwater_scenes, unpaired, test_samples, eval_data.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -444,8 +525,17 @@ def parse_args() -> argparse.Namespace:
     test_parser.add_argument("--model", choices=MODELS, required=True)
     test_parser.add_argument("--checkpoint", default="")
     test_parser.add_argument("--output-dir", default="")
+    euvp_parser = sub.add_parser("test-euvp")
+    add_common_args(euvp_parser)
+    euvp_parser.add_argument("--model", choices=MODELS, required=True)
+    euvp_parser.add_argument("--checkpoint", default="")
+    euvp_parser.add_argument("--output-dir", default="")
+    euvp_all_parser = sub.add_parser("test-euvp-all")
+    add_common_args(euvp_all_parser)
     summary_parser = sub.add_parser("summary")
     add_common_args(summary_parser)
+    euvp_summary_parser = sub.add_parser("summary-euvp")
+    add_common_args(euvp_summary_parser)
     all_parser = sub.add_parser("run-all")
     add_common_args(all_parser)
     return parser.parse_args()
@@ -459,8 +549,14 @@ def main() -> None:
         train(args)
     elif args.command == "test":
         test(args)
+    elif args.command == "test-euvp":
+        test_euvp(args)
+    elif args.command == "test-euvp-all":
+        test_euvp_all(args)
     elif args.command == "summary":
         summarize(args)
+    elif args.command == "summary-euvp":
+        summarize_euvp(args)
     elif args.command == "run-all":
         run_all(args)
     else:
